@@ -46,7 +46,9 @@ android {
     // NoClassDefFoundError: java/time/Instant。
     compileSdk = 37
     defaultConfig {
-        applicationId = "cp.player"
+        // 包名可用环境变量覆盖：`CP_APPLICATION_ID=cp.player.mod ./gradlew ...`
+        // 出「共存版」时只改环境变量，不动这份构建脚本（namespace 仍是 cp.player.app）。
+        applicationId = System.getenv("CP_APPLICATION_ID") ?: "cp.player"
         minSdk = 24
         targetSdk = 35
         versionCode = appVersionCode
