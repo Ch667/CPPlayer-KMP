@@ -565,9 +565,10 @@ private fun PlayerTimeline(state: PlaybackUiState, onSeek: (Long) -> Unit) {
     // 按曲目 remember：换歌时清掉未完成的拖动预览 —— 否则时间行会举着上一首的秒数。
     val scrub = remember(state.currentTrack?.id) { mutableStateOf<Long?>(null) }
     Column(Modifier.fillMaxWidth()) {
-        CpMinimalSeekBar(
+        CpSeekBar(
             positionMs = state.positionMs, durationMs = duration, onSeek = onSeek,
             enabled = SeekAvailability.isSeekable(duration, state.isLocalizing),
+            waveFlowing = state.isPlaying,
             trackKey = state.currentTrack?.id,
             onScrubPreview = remember(scrub) { { ms: Long? -> scrub.value = ms } },
             modifier = Modifier.fillMaxWidth().testTag("player-seek"),
