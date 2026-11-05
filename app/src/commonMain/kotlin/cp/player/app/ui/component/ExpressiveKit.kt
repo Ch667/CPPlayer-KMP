@@ -96,6 +96,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Density
@@ -113,6 +115,8 @@ import cp.player.app.ui.feedback.CpHaptic
 import cp.player.app.ui.theme.CpMotion
 import cp.player.app.ui.util.formatTimeMs
 import kotlin.math.abs
+import kotlin.math.sin
+import kotlin.math.PI
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
@@ -253,6 +257,76 @@ private val CpWaveStaticSpeed = 0.dp
  * `LinearWavyProgressIndicator` 默认值同源。流动**只在播放中**开启（见 [CpWavyProgress]）。
  */
 private val CpWaveFlowSpeed = WavyProgressIndicatorDefaults.LinearDeterminateWavelength
+
+/**
+ * 细波形进度线 —— 迷你播放器 / 紧凑场合用的「Android 16 波浪线」。
+ *
+ * 为什么不直接复用 [CpWavyProgress]：那个固定 16dp 高（`LinearWavyProgressIndicator`
+ * 的波形周期决定的），迷你播放器只要一条 3dp 的细线，套进去会把整张卡片撑高。
+ * 这里用 Canvas 自己画，粗细 / 振幅 / 波长都是参数：
+ *  - 已完成段：正弦波（[waveFlowing] 时相位前进；**只在播放中**开，暂停时零协程零重绘）
+ *  - 未完成段：直线
+ *  - 末端：一个小圆点标出当前位置，静止时也看得见
+ */
+@Composable
+fun CpWavyLine(
+    progress: Float,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary,
+    trackColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
+    strokeWidth: Dp = 3.dp,
+    amplitude: Dp = 2.dp,
+    wavelength: Dp = 12.dp,
+    waveFlowing: Boolean = false,
+) {
+    val safe = progress.coerceIn(0f, 1f)
+    val density = LocalDensity.current
+    val stroke = with(density) { strokeWidth.toPx() }
+    val amp = with(density) { amplitude.toPx() }
+    val wl = with(density) { wavelength.toPx().coerceAtLeast(1f) }
+
+    val phase = if (waveFlowing) {
+        rememberInfiniteTransition(label = "cpWavyLine").animateFloat(
+            initialValue = 0f,
+            targetValue = wl,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "cpWavyLinePhase",
+        ).value
+    } else 0f
+
+    Canvas(modifier.height(amplitude * 2 + strokeWidth)) {
+        val cy = size.height / 2f
+        val endX = size.width * safe
+
+        // 未完成段：直线
+        drawLine(
+            color = trackColor,
+            start = Offset(0f, cy),
+            end = Offset(size.width, cy),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round,
+        )
+        if (endX <= 0.5f) return@Canvas
+
+        // 已完成段：正弦波，末端收回到中线
+        val path = Path()
+        path.moveTo(0f, cy)
+        var x = 0f
+        while (x <= endX) {
+            val y = cy + sin(((x + phase) / wl) * 2f * PI.toFloat()) * amp
+            path.lineTo(x, y)
+            x += 1.5f
+        }
+        path.lineTo(endX, cy)
+        drawPath(path, color = color, style = Stroke(width = stroke, cap = StrokeCap.Round))
+
+        // 当前位置的小圆点
+        drawCircle(color = color, radius = stroke * 0.95f, center = Offset(endX, cy))
+    }
+}
 
 /** 波形线性进度条（不确定值 / 缓冲中）。 */
 @Composable
