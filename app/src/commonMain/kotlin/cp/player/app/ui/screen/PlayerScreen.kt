@@ -641,7 +641,11 @@ fun androidx.compose.animation.SharedTransitionScope.PlayerScreenContent(
                         )
                     } else Modifier
                 )
-                .offset { IntOffset(0, pullOffset.roundToInt()) },
+                // ⚠️ 这里**不能**用 `Modifier.offset` 位移整页：1.8.1 起播放页的标题/艺人与
+                // MiniPlayer 之间接了 sharedBounds，封面飞行器也搬到了整窗最顶层 —— 位移只作用于
+                // 「内容层」，共享元素按 root 坐标定位，结果是标题/艺人留在原地、压到封面上（下拉错位）。
+                // 改成纯图层的淡出：拖动时整页轻微变暗，松手按位移/速度决定是否收起。
+                .graphicsLayer { alpha = 1f - (pullOffset / dismissDragPx).coerceIn(0f, 0.45f) },
             color = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
