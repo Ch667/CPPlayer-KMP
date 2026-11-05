@@ -1288,11 +1288,13 @@ private fun ProgressRow(
         // 旧版同款**直线**进度条 —— 1:1 移植自 reference/cp-player-legacy 的 ProgressSection
         // （移动端不用波形；波形留给桌面播放页的 CpSeekBar）。视觉就是 M3 Slider 的
         // 默认 Expressive 观感。拖动期间由 CpPlainSeekBar 自己接管视觉，松手才回调 onSeek。
-        cp.player.app.ui.component.CpPlainSeekBar(
+        // 波形进度条（Android 16 / M3E 观感）：播放中波纹流动，暂停静止。
+        cp.player.app.ui.component.CpSeekBar(
             positionMs = state.positionMs,
             durationMs = duration,
             onSeek = onSeek,
             enabled = seekable,
+            waveFlowing = state.isPlaying,
             trackKey = state.currentTrack?.id,
             modifier = Modifier.fillMaxWidth(),
         )

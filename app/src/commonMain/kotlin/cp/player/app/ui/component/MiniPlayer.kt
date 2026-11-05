@@ -297,8 +297,8 @@ fun SharedTransitionScope.MiniPlayer(
                 }
             }
 
-            // 直线进度条：左右留 12dp 与文字对齐，底部留 8dp 让它"浮"在卡片里而不是贴边。
-            CpLinearProgress(
+            // Android 16 那种波浪线：已完成段是正弦波、未完成段是直线、末端一个圆点。
+            CpWavyLine(
                 progress = progress,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -306,6 +306,11 @@ fun SharedTransitionScope.MiniPlayer(
                     .padding(bottom = 8.dp),
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+                strokeWidth = 3.dp,
+                amplitude = 2.dp,
+                wavelength = 12.dp,
+                // 只在播放中流动：暂停时相位不动，避免常驻逐帧重绘
+                waveFlowing = state.isPlaying,
             )
             val errorText = state.error
             if (!errorText.isNullOrBlank()) {
