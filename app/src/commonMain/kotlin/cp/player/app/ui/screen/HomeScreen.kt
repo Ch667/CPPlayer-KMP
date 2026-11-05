@@ -403,6 +403,8 @@ private fun HomeScreenContent(model: HomeScreenModel) {
         val favId = runCatching { cp.player.core.music.CPMediaId.parse(track.id).resourceId }.getOrDefault(track.id)
         SongOptionsSheet(
             songName = track.name,
+            albumName = track.album,
+            albumId = track.albumId,
             artistName = track.artist,
             coverUrl = track.coverUrl,
             isFavorite = favId in likedIds,

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.Bookmark
@@ -60,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import cp.player.app.i18n.cpStrings
 import cp.player.app.ui.util.resized
+import kotlinx.coroutines.launch
 
 /** Playlist sort order shared by the playlist options sheet and screen models. */
 enum class PlaylistSortType { DEFAULT, NAME, ARTIST }
@@ -106,6 +108,10 @@ fun SongOptionsSheet(
     onShare: () -> Unit = {},
     onPlayMv: (() -> Unit)? = null,
     coverUrl: String? = null,
+    /** 所属专辑名。有它（或 [albumId]）时菜单里出现「查看专辑」。 */
+    albumName: String? = null,
+    /** 所属专辑 id：有就直接进专辑页，不用再搜一次。 */
+    albumId: Long? = null,
     onAddToLocalPlaylist: (() -> Unit)? = null,
     onOpenInFileManager: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
@@ -113,6 +119,46 @@ fun SongOptionsSheet(
     onDelete: (() -> Unit)? = null,
     deleteLabel: String? = null,
 ) {
+    // ── 查看专辑 ──────────────────────────────────────────────
+    // 有 albumId 就直跳专辑页；只有专辑名时走一次专辑搜索（同名优先）——
+    // 本地文件、老缓存没有 id，靠名字也能用上这个入口。
+    val albumNavigator = cafe.adriel.voyager.navigator.LocalNavigator.current
+    val albumScope = androidx.compose.runtime.rememberCoroutineScope()
+    val openAlbum: () -> Unit = {
+        val targetId = albumId
+        if (targetId != null) {
+            albumNavigator?.push(
+                cp.player.app.ui.screen.AlbumDetailScreen(
+                    targetId,
+                    cp.player.core.music.AlbumSummary(
+                        id = targetId,
+                        name = albumName.orEmpty(),
+                        coverUrl = coverUrl,
+                        artistName = artistName,
+                        trackCount = 0,
+                    ),
+                )
+            )
+            onDismiss()
+        } else if (!albumName.isNullOrBlank()) {
+            val query = albumName
+            onDismiss()
+            albumScope.launch {
+                val result = runCatching {
+                    cp.player.app.AppModel.musicRepository.search(query, cp.player.app.repository.SearchType.ALBUM)
+                }.getOrNull()
+                val albums = (result as? cp.player.core.BackendResult.Success)?.data?.albums.orEmpty()
+                val best = albums.firstOrNull { it.name.equals(query, ignoreCase = true) }
+                    ?: albums.firstOrNull()
+                if (best != null) {
+                    albumNavigator?.push(cp.player.app.ui.screen.AlbumDetailScreen(best.id, best))
+                } else {
+                    cp.player.app.ui.util.UiEvents.notify("没有找到这张专辑")
+                }
+            }
+        }
+    }
+
     LegacyModalBottomSheet(onDismissRequest = onDismiss) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Column(
@@ -204,6 +250,17 @@ fun SongOptionsSheet(
                     contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                     modifier = Modifier.weight(1f),
                     onClick = { onAddToQueue(); onDismiss() },
+                )
+            }
+            // 专辑入口：只有拿到专辑信息时才出现（纯本地文件没有专辑时整行不出现）。
+            if (albumId != null || !albumName.isNullOrBlank()) {
+                ActionPill(
+                    label = "查看专辑",
+                    icon = Icons.Filled.Album,
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    onClick = openAlbum,
                 )
             }
             // 第三排：两个胶囊 + 一个图标钮。

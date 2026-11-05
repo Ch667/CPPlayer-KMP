@@ -49,11 +49,15 @@ internal fun trackSummaryOf(json: JsonObject, id: String): TrackSummary {
 
     val mvId = ((json["mv"] ?: json["mvid"]) as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 }
 
+    // 专辑 id：`al` / `album` 两种写法都可能是数字或数字字符串。
+    val albumId = (albumObj?.get("id") as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 }
+
     return TrackSummary(
         id = id,
         name = trackTitle,
         artist = artistNames,
         album = albumName,
+        albumId = albumId,
         coverUrl = coverUrl,
         durationMs = durationMs,
         artists = artists,

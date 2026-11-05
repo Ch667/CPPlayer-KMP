@@ -509,6 +509,8 @@ class SearchScreen(private val initialQuery: String = "") : Screen {
         selectedTrack?.let { track ->
             cp.player.app.ui.component.SongOptionsSheet(
                 songName = track.name,
+                albumName = track.album,
+                albumId = track.albumId,
                 artistName = track.artist,
                 coverUrl = track.coverUrl,
                 isFavorite = track.id in likedIds,

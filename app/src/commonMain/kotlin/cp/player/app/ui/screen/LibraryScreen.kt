@@ -190,7 +190,11 @@ private fun LibraryScreenContent(model: LibraryScreenModel) {
             compact = !expanded,
             greeting = if (!expanded) profile?.nickname?.let(s.library::greeting) else null,
             actions = DesktopLibraryActions(
-                onSelectTab = model::selectTab,
+                onSelectTab = { index ->
+                    model.selectTab(index)
+                    // 切到「专辑」页静默重拉一次：收藏可能发生在别的设备 / 别的页面
+                    if (index == 1) model.refreshAlbums()
+                },
                 onCreatePlaylist = { showCreateDialog = true },
                 onSearch = { navigator.push(LibrarySearchScreen()) },
                 onImport = { navigator.push(ImportPlaylistScreen()) },
@@ -199,7 +203,10 @@ private fun LibraryScreenContent(model: LibraryScreenModel) {
                 onDownloads = { navigator.push(DownloadsScreen()) },
                 onLocal = { navigator.push(LocalLibraryScreen()) },
                 onCloud = { navigator.push(CloudDriveScreen()) },
-                onAlbumWall = { navigator.push(AlbumWallScreen()) },
+                // 从曲库进专辑墙默认落在**专辑**上（"queue" 是播放队列的海报，
+                // 队列里每一项其实是一首歌 ⇒ 点「播放」只放一首，像是专辑播放坏了）
+                onAlbumWall = { navigator.push(AlbumWallScreen(initialSource = "library")) },
+                onOpenAlbum = { album -> navigator.push(AlbumDetailScreen(album.id, album)) },
                 onRetry = model::refresh,
                 onOpenPlaylist = { navigator.push(PlaylistDetailScreen(it)) },
                 onPlaylistOptions = { selectedPlaylist = it },

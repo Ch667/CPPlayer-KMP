@@ -300,6 +300,27 @@ fun PosterWallScreen(
 
     fun playPoster(poster: ExpandedPoster) {
         scope.launch {
+            // 专辑海报：语义是「听这张专辑」⇒ 整张入队，从第 1 轨起。
+            // ⚠️ 必须排在 `source == "queue"` 之前 —— 队列里每一项其实是一首歌
+            // （封面就是专辑图），排在后面的话点专辑的播放永远命中队列分支，只放那一首。
+            if (poster.song.sourceKind == "album") {
+                val albumKey = poster.song.id
+                val detail = runCatching {
+                    val idLong = albumKey.toLongOrNull()
+                    if (idLong != null) AppModel.musicRepository.getAlbumDetail(idLong)
+                    else AppModel.musicRepository.getAlbumDetail(albumKey)
+                }.getOrNull()
+                val provider = AppModel.activeProviderId()
+                val ids = (detail as? BackendResult.Success)?.data?.tracks?.map {
+                    AppModel.toMediaId(it.id, provider)
+                }.orEmpty()
+                if (ids.isNotEmpty()) {
+                    AppModel.playback.playQueue(ids, startIndex = 0, sourceId = albumKey)
+                } else {
+                    UiEvents.notify(s.wall.playFailed)
+                }
+                return@launch
+            }
             if (source == "queue") {
                 val idx = poster.sourceIndex
                 if (idx in queueSongs.indices) {
@@ -683,6 +704,7 @@ fun PosterWallScreen(
             }
             SongOptionsSheet(
                 songName = song.title,
+                albumName = song.album,
                 artistName = song.artist,
                 coverUrl = song.coverUrl,
                 isFavorite = song.id in likedIds,

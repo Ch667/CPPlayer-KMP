@@ -1166,6 +1166,8 @@ interface LibraryStrings {
 
     // —— 媒体库页 ——
     val tabPlaylists: String
+    /** 曲库分段里的「专辑」页（收藏的专辑）。 */
+    val tabAlbums: String
     val tabDownloads: String
     val myMusic: String
     val gridView: String
@@ -1200,6 +1202,13 @@ interface LibraryStrings {
     val libraryLoadFailed: String
     val noPlaylists: String
     val noPlaylistsNote: String
+
+    // —— 收藏专辑（曲库 → 专辑页）——
+    val favoriteAlbums: String
+    fun favoriteAlbumsCount(n: Int): String
+    val favoriteAlbumsEmpty: String
+    val favoriteAlbumsEmptyNote: String
+    val browseAlbumWall: String
     val myPlaylists: String
     fun myPlaylistsCount(n: Int): String
     val seeAll: String
