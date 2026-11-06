@@ -399,10 +399,9 @@ private fun PlayerTimeline(state: PlaybackUiState, onSeek: (Long) -> Unit) {
     val s = cpStrings()
     val duration = state.durationMs.coerceAtLeast(0L)
     Column(Modifier.fillMaxWidth()) {
-        CpSeekBar(
+        CpMinimalSeekBar(
             positionMs = state.positionMs, durationMs = duration, onSeek = onSeek,
             enabled = SeekAvailability.isSeekable(duration, state.isLocalizing),
-            waveFlowing = state.isPlaying,
             trackKey = state.currentTrack?.id,
             modifier = Modifier.fillMaxWidth().testTag("player-seek"),
         )
