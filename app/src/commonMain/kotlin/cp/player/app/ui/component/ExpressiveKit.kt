@@ -259,14 +259,14 @@ private val CpWaveStaticSpeed = 0.dp
 private val CpWaveFlowSpeed = WavyProgressIndicatorDefaults.LinearDeterminateWavelength
 
 /**
- * 细波形进度线 —— 迷你播放器 / 紧凑场合用的「Android 16 波浪线」。
+ * 细波形进度线 —— 迷你播放器用的「Android 16 波浪线」。
  *
- * 为什么不直接复用 [CpWavyProgress]：那个固定 16dp 高（`LinearWavyProgressIndicator`
- * 的波形周期决定的），迷你播放器只要一条 3dp 的细线，套进去会把整张卡片撑高。
- * 这里用 Canvas 自己画，粗细 / 振幅 / 波长都是参数：
- *  - 已完成段：正弦波（[waveFlowing] 时相位前进；**只在播放中**开，暂停时零协程零重绘）
- *  - 未完成段：直线
- *  - 末端：一个小圆点标出当前位置，静止时也看得见
+ * 形态：**整条是直线**，只有靠近当前进度的**末端一小段**（[waveTail]）起伏成波，末端
+ * 一个圆点收尾。第一版把整条已播段都画成波，在 3dp 的细线上就成了锯齿 —— 既难看，
+ * 又和旁边的标题抢注意力；实际观感要的是「推到哪儿，哪儿才泛一下波」。
+ *
+ * 为什么不直接复用 [CpWavyProgress]：那个固定 16dp 高（波形周期决定的），
+ * 套进迷你播放器会把整张卡片撑高。
  */
 @Composable
 fun CpWavyLine(
@@ -277,6 +277,8 @@ fun CpWavyLine(
     strokeWidth: Dp = 3.dp,
     amplitude: Dp = 2.dp,
     wavelength: Dp = 12.dp,
+    /** 末端波浪段长度；0 = 画成纯直线。 */
+    waveTail: Dp = 26.dp,
     waveFlowing: Boolean = false,
 ) {
     val safe = progress.coerceIn(0f, 1f)
@@ -284,7 +286,9 @@ fun CpWavyLine(
     val stroke = with(density) { strokeWidth.toPx() }
     val amp = with(density) { amplitude.toPx() }
     val wl = with(density) { wavelength.toPx().coerceAtLeast(1f) }
+    val tail = with(density) { waveTail.toPx() }
 
+    // 波纹相位：只在播放中前进；暂停时不动，零逐帧重绘
     val phase = if (waveFlowing) {
         rememberInfiniteTransition(label = "cpWavyLine").animateFloat(
             initialValue = 0f,
@@ -301,7 +305,7 @@ fun CpWavyLine(
         val cy = size.height / 2f
         val endX = size.width * safe
 
-        // 未完成段：直线
+        // 未完成段
         drawLine(
             color = trackColor,
             start = Offset(0f, cy),
@@ -311,19 +315,33 @@ fun CpWavyLine(
         )
         if (endX <= 0.5f) return@Canvas
 
-        // 已完成段：正弦波，末端收回到中线
+        // 已完成段的主体：直线
+        val waveStart = (endX - tail).coerceAtLeast(0f)
+        if (waveStart > 0f) {
+            drawLine(
+                color = color,
+                start = Offset(0f, cy),
+                end = Offset(waveStart, cy),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
+        }
+
+        // 末端那一小段：正弦波，振幅从 0 渐入，避免直线与波之间出现断口
         val path = Path()
-        path.moveTo(0f, cy)
-        var x = 0f
+        path.moveTo(waveStart, cy)
+        var x = waveStart
+        val span = tail.coerceAtLeast(1f)
         while (x <= endX) {
-            val y = cy + sin(((x + phase) / wl) * 2f * PI.toFloat()) * amp
+            val t = ((x - waveStart) / span).coerceIn(0f, 1f)
+            val y = cy + sin(((x + phase) / wl) * 2f * PI.toFloat()) * amp * (t * t)
             path.lineTo(x, y)
             x += 1.5f
         }
         path.lineTo(endX, cy)
         drawPath(path, color = color, style = Stroke(width = stroke, cap = StrokeCap.Round))
 
-        // 当前位置的小圆点
+        // 当前位置的圆点
         drawCircle(color = color, radius = stroke * 0.95f, center = Offset(endX, cy))
     }
 }
