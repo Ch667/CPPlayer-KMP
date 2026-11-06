@@ -645,7 +645,13 @@ fun androidx.compose.animation.SharedTransitionScope.PlayerScreenContent(
                 // MiniPlayer 之间接了 sharedBounds，封面飞行器也搬到了整窗最顶层 —— 位移只作用于
                 // 「内容层」，共享元素按 root 坐标定位，结果是标题/艺人留在原地、压到封面上（下拉错位）。
                 // 改成纯图层的淡出：拖动时整页轻微变暗，松手按位移/速度决定是否收起。
-                .graphicsLayer { alpha = 1f - (pullOffset / dismissDragPx).coerceIn(0f, 0.45f) },
+                // 拖动时整页跟着手指下沉 —— 用 graphicsLayer 的 translationY（绘制阶段变换）
+                // 而不是 `Modifier.offset`（布局阶段位移）：1.8.1 的封面/标题走 sharedBounds，
+                // 布局位移会让共享元素各自为政（标题留在原地压到封面上）；图层位移是整层一起走。
+                .graphicsLayer {
+                    translationY = pullOffset
+                    alpha = 1f - (pullOffset / dismissDragPx).coerceIn(0f, 0.35f)
+                },
             color = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
