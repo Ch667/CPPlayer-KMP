@@ -908,10 +908,13 @@ private fun QrLoginPanel(
         //   · 或模块显式声明了 webviewLogin 能力。
         // 网易云 / QQ 这类二维码是给**它们自己的 App** 扫的，跳到手机网页版登录没有任何意义
         // （之前没加限定时点一下真就弹到了 y.music.163.com），所以那里不显示。
-        val browserLoginSupported = rememberActiveProviderSupports(ProviderCapability.WEBVIEW_LOGIN)
+        // ⚠️ 这里**只认 spotify.com 域名**，不要再拿 `webviewLogin` 能力当条件：
+        // 网易云 / QQ 的模块也声明了 webviewLogin（它们确实有自己的内嵌登录页），
+        // 用它当开关等于把「在浏览器中登录」又还给了它们 —— 点下去还是 163 的网页。
         val browserUrl = qrUrl?.takeIf { url ->
             url.startsWith("https://", ignoreCase = true) &&
-                (browserLoginSupported || url.contains("spotify.com", ignoreCase = true))
+                (url.contains("spotify.com", ignoreCase = true) ||
+                    url.contains("accounts.spotify.com", ignoreCase = true))
         }
         if (browserUrl != null) {
             Button(
