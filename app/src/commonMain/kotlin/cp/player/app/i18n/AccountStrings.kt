@@ -140,6 +140,16 @@ interface AccountStrings {
     val saveQr: String
 
     /**
+     * 「在浏览器中登录」按钮。
+     *
+     * Spotify(librespot) 这类音源没有 App 内扫码通道：`login/qr/create` 回的是一个
+     * `https://spotify.com/pair?code=…` 授权页 —— 必须在浏览器里打开完成授权，
+     * Spotify App 的「扫一扫」识别不了它。所以登录面板必须给一个明确的浏览器入口，
+     * 而不是只挂一张扫不动的二维码。
+     */
+    val openInBrowser: String
+
+    /**
      * 「这张二维码是上次没扫完、这次恢复出来的」常显提示（登录页顶部）。
      *
      * 与上面那组 ScreenModel 提示语分开：那些走 `message`，2 秒一次轮询就会把它们覆盖掉，
@@ -374,6 +384,7 @@ object AccountStringsZh : AccountStrings {
     override val qrLoadFailed = "二维码加载失败"
     override val refreshQr = "刷新二维码"
     override val saveQr = "保存二维码"
+    override val openInBrowser = "在浏览器中登录"
     override val qrRestored = "已恢复上次没扫完的二维码 —— 用手机接着扫这一张即可；" +
         "若已经失效，刷新一次就能拿到新的。"
     override val qrResumePrompt = "上次的扫码登录还没完成，二维码已经为你保留；到「账号」页可以接着扫。"
@@ -541,6 +552,7 @@ object AccountStringsEn : AccountStrings {
     override val qrLoadFailed = "Couldn't load the QR code"
     override val refreshQr = "Refresh QR code"
     override val saveQr = "Save QR code"
+    override val openInBrowser = "Sign in with browser"
     override val qrRestored = "Restored the QR code you didn't finish scanning — " +
         "keep scanning the same one on your phone; if it has expired, refresh for a new one."
     override val qrResumePrompt = "Your last QR sign-in wasn't finished and the code was kept — " +

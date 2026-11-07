@@ -114,6 +114,7 @@ import cp.player.app.i18n.cpStrings
 import cp.player.app.platform.isPackageInstalled
 import cp.player.app.platform.openTargetApp
 import cp.player.app.platform.openWebview
+import cp.player.app.platform.openUrl
 import cp.player.app.platform.saveQrCodeToGallery
 import cp.player.app.ui.component.CpConfirmHost
 import cp.player.app.ui.component.CpIconSize
@@ -897,6 +898,23 @@ private fun QrLoginPanel(
         }
 
         Spacer(Modifier.height(16.dp))
+
+        // 浏览器登录：二维码内容本身就是一个 https 授权链接（Spotify 是 spotify.com/pair?code=…），
+        // 手机上的 Spotify App 扫不动它，只有浏览器能完成授权。所以这里放一颗整宽主按钮 ——
+        // 登录页上「看得见的浏览器入口」，而不是靠模块在后台偷偷拉一次浏览器。
+        val browserUrl = qrUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        if (browserUrl != null) {
+            Button(
+                onClick = { openUrl(browserUrl) },
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(CpIconSize.inline))
+                Spacer(Modifier.width(8.dp))
+                CpText(s.openInBrowser, style = MaterialTheme.typography.labelLarge)
+            }
+            Spacer(Modifier.height(12.dp))
+        }
 
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
