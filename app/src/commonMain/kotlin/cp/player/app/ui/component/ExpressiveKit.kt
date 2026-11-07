@@ -98,6 +98,7 @@ import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Density
@@ -261,12 +262,14 @@ private val CpWaveFlowSpeed = WavyProgressIndicatorDefaults.LinearDeterminateWav
 /**
  * 细波形进度线 —— 迷你播放器用的「Android 16 波浪线」。
  *
- * 形态：**整条是直线**，只有靠近当前进度的**末端一小段**（[waveTail]）起伏成波，末端
- * 一个圆点收尾。第一版把整条已播段都画成波，在 3dp 的细线上就成了锯齿 —— 既难看，
- * 又和旁边的标题抢注意力；实际观感要的是「推到哪儿，哪儿才泛一下波」。
+ * 形态：主体是直线，只有靠近当前进度的末端一小段（[waveTail]）鼓起成波，末端圆点收尾。
  *
- * 为什么不直接复用 [CpWavyProgress]：那个固定 16dp 高（波形周期决定的），
- * 套进迷你播放器会把整张卡片撑高。
+ * ⚠️ 画这条线有三个细节，少一个就会「有棱角 / 上下抖动」：
+ *  1. **采样步长 0.5px**。1.5px 时正弦被离散成一条折线，3dp 粗的描边会把每节折点画成棱；
+ *  2. **`join = StrokeJoin.Round`**。Path 描边默认是 miter 连接，折点处会被拉出尖角 ——
+ *     这是「棱角」最直接的来源（圆头 cap 只影响首尾，不管拐点）；
+ *  3. **包络两端归零**（`sin(π·t)`）。振幅在中段最大、到圆点前回到中线，
+ *     不会出现「波浪突然被一刀切断、末端硬拐回直线」的折角。
  */
 @Composable
 fun CpWavyLine(
@@ -315,31 +318,36 @@ fun CpWavyLine(
         )
         if (endX <= 0.5f) return@Canvas
 
-        // 已完成段的主体：直线
+        // 已完成段的直线主体（多画 1px 压住接缝）
         val waveStart = (endX - tail).coerceAtLeast(0f)
         if (waveStart > 0f) {
             drawLine(
                 color = color,
                 start = Offset(0f, cy),
-                end = Offset(waveStart, cy),
+                end = Offset(waveStart + 1f, cy),
                 strokeWidth = stroke,
                 cap = StrokeCap.Round,
             )
         }
 
-        // 末端那一小段：正弦波，振幅从 0 渐入，避免直线与波之间出现断口
+        // 末端波浪：sin 包络（两端为 0）+ 细采样 + 圆角连接
         val path = Path()
         path.moveTo(waveStart, cy)
-        var x = waveStart
         val span = tail.coerceAtLeast(1f)
-        while (x <= endX) {
+        var x = waveStart
+        while (x < endX) {
             val t = ((x - waveStart) / span).coerceIn(0f, 1f)
-            val y = cy + sin(((x + phase) / wl) * 2f * PI.toFloat()) * amp * (t * t)
+            val envelope = sin(PI.toFloat() * t)
+            val y = cy + sin(((x + phase) / wl) * 2f * PI.toFloat()) * amp * envelope
             path.lineTo(x, y)
-            x += 1.5f
+            x += 0.5f
         }
         path.lineTo(endX, cy)
-        drawPath(path, color = color, style = Stroke(width = stroke, cap = StrokeCap.Round))
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round),
+        )
 
         // 当前位置的圆点
         drawCircle(color = color, radius = stroke * 0.95f, center = Offset(endX, cy))
