@@ -7,6 +7,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
 import cp.player.app.ui.component.CpText
+import cp.player.app.ui.component.rememberActiveProviderSupports
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -902,7 +903,16 @@ private fun QrLoginPanel(
         // 浏览器登录：二维码内容本身就是一个 https 授权链接（Spotify 是 spotify.com/pair?code=…），
         // 手机上的 Spotify App 扫不动它，只有浏览器能完成授权。所以这里放一颗整宽主按钮 ——
         // 登录页上「看得见的浏览器入口」，而不是靠模块在后台偷偷拉一次浏览器。
-        val browserUrl = qrUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        // 只有「二维码本身就是网页授权页」的音源才给这颗按钮：
+        //   · Spotify(librespot) → https://spotify.com/pair?code=…，只能在浏览器里授权；
+        //   · 或模块显式声明了 webviewLogin 能力。
+        // 网易云 / QQ 这类二维码是给**它们自己的 App** 扫的，跳到手机网页版登录没有任何意义
+        // （之前没加限定时点一下真就弹到了 y.music.163.com），所以那里不显示。
+        val browserLoginSupported = rememberActiveProviderSupports(ProviderCapability.WEBVIEW_LOGIN)
+        val browserUrl = qrUrl?.takeIf { url ->
+            url.startsWith("https://", ignoreCase = true) &&
+                (browserLoginSupported || url.contains("spotify.com", ignoreCase = true))
+        }
         if (browserUrl != null) {
             Button(
                 onClick = { openUrl(browserUrl) },
