@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Search
@@ -88,6 +89,7 @@ import cp.player.app.ui.component.desktopScrollbarGutter
 import cp.player.app.ui.model.LibraryUiState
 import cp.player.app.ui.util.resized
 import cp.player.app.ui.wall.PosterWallIcon
+import cp.player.core.music.AlbumSummary
 import cp.player.core.music.PlaylistSummary
 
 internal class DesktopLibraryActions(
@@ -101,6 +103,8 @@ internal class DesktopLibraryActions(
     val onLocal: () -> Unit,
     val onCloud: () -> Unit,
     val onAlbumWall: () -> Unit,
+    /** 打开某张收藏专辑的详情页（曲库 → 专辑页）。 */
+    val onOpenAlbum: (AlbumSummary) -> Unit = {},
     val onRetry: () -> Unit,
     val onOpenPlaylist: (PlaylistSummary) -> Unit,
     val onPlaylistOptions: (PlaylistSummary) -> Unit,
@@ -258,22 +262,33 @@ internal fun DesktopLibraryLayout(
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
                                 CpText(
-                                    if (state.selectedTab == 0) s.library.libraryPlaylistsCount(state.playlists.size)
-                                    else s.library.libraryOffline,
+                                    when (state.selectedTab) {
+                                        0 -> s.library.libraryPlaylistsCount(state.playlists.size)
+                                        1 -> s.library.favoriteAlbumsCount(state.favoriteAlbums.size)
+                                        else -> s.library.libraryOffline
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             DesktopLibraryActionButton(s.library.searchLibrary, Icons.Filled.Search, actions.onSearch)
-                            DesktopLibraryActionButton(s.library.importPlaylist, Icons.Filled.FileUpload, actions.onImport)
-                            if (compact) {
-                                DesktopLibraryActionButton(s.library.newPlaylist, Icons.Filled.Add, actions.onCreatePlaylist)
+                            // 导入 / 新建只属于「歌单」页：专辑页上这两个动作没有语义。
+                            if (state.selectedTab == 0) {
+                                DesktopLibraryActionButton(s.library.importPlaylist, Icons.Filled.FileUpload, actions.onImport)
+                                if (compact) {
+                                    DesktopLibraryActionButton(s.library.newPlaylist, Icons.Filled.Add, actions.onCreatePlaylist)
+                                }
                             }
                         }
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            // 0 = 歌单 / 1 = 专辑 / 2 = 本地媒体库
                             CpConnectedChoice(
-                                selectedIndex = state.selectedTab.coerceIn(0, 1),
-                                labels = listOf(s.library.tabPlaylists, s.downloads.tabLocalLibrary),
+                                selectedIndex = state.selectedTab.coerceIn(0, 2),
+                                labels = listOf(
+                                    s.library.tabPlaylists,
+                                    s.library.tabAlbums,
+                                    s.downloads.tabLocalLibrary,
+                                ),
                                 onSelect = actions.onSelectTab,
                             )
                             Spacer(Modifier.weight(1f))
@@ -284,7 +299,38 @@ internal fun DesktopLibraryLayout(
                     }
                 }
                 when {
-                    state.selectedTab != 0 -> item(key = "local") { localContent() }
+                    // 2 = 本地媒体库（「专辑」页插在歌单与本地之间）
+                    state.selectedTab == 2 -> item(key = "local") { localContent() }
+                    state.selectedTab == 1 -> {
+                        if (state.favoriteAlbums.isEmpty()) {
+                            item(key = "albums-empty") {
+                                ProvideCpTextFullDisplay {
+                                    ContentState(
+                                        title = s.library.favoriteAlbumsEmpty,
+                                        message = s.library.favoriteAlbumsEmptyNote,
+                                        actionLabel = s.library.browseAlbumWall,
+                                        onAction = actions.onAlbumWall,
+                                    )
+                                }
+                            }
+                        } else {
+                            items(
+                                state.favoriteAlbums.chunked(columns),
+                                key = { row -> "album-row-${row.first().id}-${row.first().name}" },
+                            ) { row ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(CpSpacing.pageHorizontal)) {
+                                    row.forEach { album ->
+                                        FavoriteAlbumCard(
+                                            album = album,
+                                            onOpen = { actions.onOpenAlbum(album) },
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                                }
+                            }
+                        }
+                    }
                     state.loading && state.playlists.isEmpty() -> item(key = "loading") {
                         CpSongRowSkeleton(rows = 4)
                     }
@@ -401,6 +447,46 @@ private fun LibraryCoverStack(playlists: List<PlaylistSummary>, modifier: Modifi
                     .clip(MaterialTheme.shapes.large),
             )
         }
+    }
+}
+
+@Composable
+private fun FavoriteAlbumCard(
+    album: AlbumSummary,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val s = cpStrings()
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(
+            Modifier.fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(MaterialTheme.shapes.large)
+                .clickable(onClick = onOpen)
+                .cpPressScale(),
+        ) {
+            CpCoverPlaceholder(Modifier.fillMaxSize(), corner = 16.dp, animated = false)
+            if (!album.coverUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = album.coverUrl.resized(400),
+                    contentDescription = album.name,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+        }
+        CpText(
+            album.name,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
+        CpText(
+            album.artistName?.takeIf { it.isNotBlank() } ?: s.downloads.unknownArtist,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
     }
 }
 

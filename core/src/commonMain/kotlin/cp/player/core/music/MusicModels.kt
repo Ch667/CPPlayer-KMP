@@ -68,6 +68,8 @@ data class TrackSummary(
     val name: String,
     val artist: String,
     val album: String?,
+    /** 专辑 id。有它就能从任意一首歌直跳专辑页（⋯ 菜单的「查看专辑」）。 */
+    val albumId: Long? = null,
     val coverUrl: String?,
     val durationMs: Long,
     val artists: List<ArtistSummary> = emptyList(),

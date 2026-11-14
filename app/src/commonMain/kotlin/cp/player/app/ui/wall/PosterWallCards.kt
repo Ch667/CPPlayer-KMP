@@ -634,7 +634,10 @@ internal fun PosterExpandedCard(
                             Row(
                                 Modifier
                                     .clip(CircleShape)
-                                    .background(Color.White)
+                                    // ⚠️ 底色与内容色成对取自 M3 的 surface / onSurface：
+                                    // 旧版写死 Color.White 底 + 内容色 surface，浅色主题下
+                                    // surface 本身接近白色 ⇒ 白底白字，「播放」整块看不见。
+                                    .background(PosterOnInk)
                                     .focusRequester(transportFocus)
                                     .onFocusChanged { focused = it.isFocused }
                                     .border(if (focused) 2.dp else 0.dp, MaterialTheme.colorScheme.primary, CircleShape)

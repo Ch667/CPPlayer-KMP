@@ -5,9 +5,12 @@ import cafe.adriel.voyager.core.model.screenModelScope
 import cp.player.app.AppModel
 import cp.player.app.ui.util.UiEvents
 import cp.player.core.BackendResult
+import cp.player.core.music.AlbumSummary
 import cp.player.core.music.PlaylistSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +21,11 @@ import kotlinx.coroutines.withContext
 
 data class LibraryUiState(
     val playlists: List<PlaylistSummary> = emptyList(),
+    /**
+     * 收藏的专辑（上游 `album/sublist`），曲库 → 专辑页的数据源。
+     * 与 [playlists] 分开存：两条独立请求，专辑拉挂了不该把歌单也置空。
+     */
+    val favoriteAlbums: List<AlbumSummary> = emptyList(),
     val loading: Boolean = true,
     val error: String? = null,
     val selectedPlaylistId: String? = null,
@@ -57,6 +65,10 @@ class LibraryScreenModel : ScreenModel {
         screenModelScope.launch {
             AppModel.playlistGeneration.drop(1).collect { refresh() }
         }
+        // 收藏 / 取消收藏专辑后，曲库的「专辑」页要立刻跟着变（否则得退出重进）。
+        screenModelScope.launch {
+            AppModel.albumFavoriteGeneration.drop(1).collect { refreshAlbums() }
+        }
     }
 
     /**
@@ -76,37 +88,62 @@ class LibraryScreenModel : ScreenModel {
                 // 无激活音源插件时直接返回空列表（本地曲库模式），不发起报错网络请求
                 if (AppModel.activeProvider() == null) {
                     if (gen == refreshGen) {
-                        _state.update { s -> s.copy(playlists = emptyList(), loading = false, error = null) }
+                        _state.update { s ->
+                            s.copy(playlists = emptyList(), favoriteAlbums = emptyList(), loading = false, error = null)
+                        }
                     }
                     return@launch
                 }
                 // ⚠️ IO 线程**只负责取数据**，不要在 IO 线程上读-改-写 `_state`：
                 // 那会和 Main 上的 selectTab / selectPlaylist 并发，把用户刚选的态覆盖回退。
-                val result = withContext(Dispatchers.IO) {
-                    runCatching { AppModel.musicRepository.getCurrentUserPlaylists() }.getOrNull()
+                // 歌单与收藏专辑互不依赖 ⇒ 并发拉，各自兜异常（一个挂了不连累另一个）
+                val (result, albumsResult) = withContext(Dispatchers.IO) {
+                    coroutineScope {
+                        val playlistsTask = async {
+                            runCatching { AppModel.musicRepository.getCurrentUserPlaylists() }.getOrNull()
+                        }
+                        val albumsTask = async {
+                            runCatching { AppModel.musicRepository.getUserAlbums(limit = 300) }.getOrNull()
+                        }
+                        playlistsTask.await() to albumsTask.await()
+                    }
                 }
                 if (gen != refreshGen) return@launch
                 _state.update { s ->
+                    val albums = (albumsResult as? BackendResult.Success)?.data ?: s.favoriteAlbums
                     when (result) {
                         is BackendResult.Success ->
                             if (silent && result.data == s.playlists) {
                                 // 内容没变就保留旧列表实例：观察者（如歌单详情页的
                                 // LaunchedEffect）以列表实例为 key，换了实例会白触发一轮。
-                                s.copy(loading = false)
+                                s.copy(loading = false, favoriteAlbums = albums)
                             } else {
-                                s.copy(playlists = result.data, loading = false)
+                                s.copy(playlists = result.data, loading = false, favoriteAlbums = albums)
                             }
-                        is BackendResult.Error ->
-                            if (s.playlists.isNotEmpty()) s.copy(loading = false)
-                            else s.copy(loading = false, error = result.message)
-                        is BackendResult.Unsupported -> s.copy(loading = false, error = result.message)
-                        null ->
-                            if (s.playlists.isNotEmpty()) s.copy(loading = false)
-                            else s.copy(loading = false, error = "媒体库加载失败")
+                        is BackendResult.Error -> s.copy(loading = false, error = result.message, favoriteAlbums = albums)
+                        is BackendResult.Unsupported -> s.copy(loading = false, error = result.message, favoriteAlbums = albums)
+                        null -> s.copy(loading = false, error = "媒体库加载失败", favoriteAlbums = albums)
                     }
                 }
             } finally {
                 if (gen == refreshGen) _refreshing.value = false
+            }
+        }
+    }
+
+    // ============ 收藏专辑 ============
+
+    /**
+     * 只重拉收藏专辑（收藏 / 取消收藏之后走这条）。失败保留旧列表 ——
+     * 清空会变成「刚取消一张，整页专辑都不见了」。
+     */
+    fun refreshAlbums() {
+        screenModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { AppModel.musicRepository.getUserAlbums(limit = 300) }.getOrNull()
+            }
+            if (result is BackendResult.Success) {
+                _state.update { it.copy(favoriteAlbums = result.data) }
             }
         }
     }

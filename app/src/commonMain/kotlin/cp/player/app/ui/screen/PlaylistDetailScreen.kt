@@ -521,6 +521,8 @@ fun PlaylistDetailContent(
     optionsTarget?.let { track ->
         SongOptionsSheet(
             songName = track.name,
+            albumName = track.album,
+            albumId = track.albumId,
             artistName = track.artist,
             isFavorite = model.isLiked(track.id),
             isDownloaded = AppModel.isDownloaded(track.id),

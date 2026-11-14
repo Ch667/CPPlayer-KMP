@@ -370,6 +370,8 @@ private fun CloudDriveContent(
         val index = state.songs.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
         SongOptionsSheet(
             songName = track.name,
+            albumName = track.album,
+            albumId = track.albumId,
             artistName = track.artist,
             coverUrl = track.coverUrl,
             isFavorite = track.id in likedIds,
