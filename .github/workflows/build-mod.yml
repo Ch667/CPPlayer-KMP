@@ -36,12 +36,12 @@ jobs:
           KEY_PASSWORD: cpplayer2026
         run: |
           chmod +x gradlew
-          ./gradlew :app-android:assembleRelease -Papp.versionName=1.9.0 \
+          ./gradlew :app-android:assembleRelease -Papp.versionName=1.9.1 \
             -x lintVitalAnalyzeRelease -x lintVitalRelease -x reportReleaseComposeMappingErrors
 
       - uses: actions/upload-artifact@v4
         with:
-          name: CPPlayer-1.9.0-mod
+          name: CPPlayer-1.9.1-mod
           path: |
             app-android/build/outputs/apk/release/*.apk
             app-android/build/outputs/mapping/release/mapping.txt
