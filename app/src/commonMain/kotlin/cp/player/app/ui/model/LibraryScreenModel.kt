@@ -174,7 +174,7 @@ class LibraryScreenModel : ScreenModel {
         screenModelScope.launch {
             val result = AppModel.musicRepository.getPlaylistDetail(playlist.resourceId)
             if (result !is BackendResult.Success) return@launch
-            val ids = result.data.tracks.map { "${AppModel.activeProviderId()}://song/${it.id}" }
+            val ids = result.data.tracks.map { AppModel.toMediaId(it.id) }
             if (ids.isEmpty()) return@launch
             if (addOnly) {
                 ids.forEach { AppModel.playback.addToQueue(it) }

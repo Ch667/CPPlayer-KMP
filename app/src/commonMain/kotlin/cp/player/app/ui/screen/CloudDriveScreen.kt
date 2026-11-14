@@ -211,11 +211,11 @@ class CloudDriveScreenModel : ScreenModel {
         if (songs.isEmpty()) return
         songs.getOrNull(index)?.let { CoverFlight.play(it.id, it.coverUrl) }
         val provider = AppModel.activeProviderId()
-        val clicked = songs.getOrNull(index)?.let { "$provider://song/${it.id}" } ?: return
+        val clicked = songs.getOrNull(index)?.let { AppModel.toMediaId(id) } ?: return
         // 云盘歌曲的 simpleSong.id 是标准歌曲 id，song/url/v1 实测可用，
         // 直接按普通歌曲入列（带上列表上下文，跟随播放列表的功能才有落点）。
         AppModel.playTrackClicked(clicked) {
-            AppModel.playback.playQueue(songs.map { "$provider://song/${it.id}" }, startIndex = index)
+            AppModel.playback.playQueue(songs.map { AppModel.toMediaId(id) }, startIndex = index)
         }
     }
 

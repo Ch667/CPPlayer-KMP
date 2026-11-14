@@ -700,7 +700,7 @@ fun PosterWallScreen(
             } else if (song.id.contains("://")) {
                 song.id
             } else {
-                "$provider://song/${song.id}"
+                AppModel.toMediaId(id)
             }
             SongOptionsSheet(
                 songName = song.title,
