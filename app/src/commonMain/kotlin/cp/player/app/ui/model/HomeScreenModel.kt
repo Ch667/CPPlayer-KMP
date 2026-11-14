@@ -325,7 +325,7 @@ class HomeScreenModel(
     fun playPlaylist(playlist: PlaylistSummary) = withPlaylistTracks(playlist) { tracks ->
         val provider = AppModel.activeProviderId()
         AppModel.playback.playQueue(
-            tracks.map { AppModel.toMediaId(it.id, provider) },
+            tracks.map { AppModel.toMediaId(it.id) },
             startIndex = 0,
             sourceId = playlist.resourceId,
         )
@@ -334,7 +334,7 @@ class HomeScreenModel(
     /** 把整个歌单追加到播放队列尾部（不动当前播放）。 */
     fun queuePlaylist(playlist: PlaylistSummary) = withPlaylistTracks(playlist) { tracks ->
         val provider = AppModel.activeProviderId()
-        tracks.forEach { AppModel.playback.addToQueue(AppModel.toMediaId(it.id, provider)) }
+        tracks.forEach { AppModel.playback.addToQueue(AppModel.toMediaId(it.id)) }
         cp.player.app.ui.util.UiEvents.notify("已把「${playlist.name}」加入播放队列")
     }
 

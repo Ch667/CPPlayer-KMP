@@ -300,9 +300,7 @@ private fun AlbumDetailContent(
             (track.album?.contains(q, ignoreCase = true) == true)
         }
     }
-    // ⚠️ 1.9.0 起 `TrackSummary.id` 已经是规范 mediaId（`provider://song/xxx`），
-    // 再拼前缀会变成 `provider://song/provider://song/xxx`，播放直接失败（点了没反应）。
-    val mediaIds = filteredTracks.map { AppModel.toMediaId(it.id, provider) }
+    val mediaIds = filteredTracks.map { AppModel.toMediaId(it.id) }
 
     val playAt: (Int) -> Unit = { index ->
         filteredTracks.getOrNull(index)?.let { CoverFlight.play(it.id, it.coverUrl) }
@@ -493,16 +491,16 @@ private fun AlbumDetailContent(
                                         onToggleFavorite = {
                                             val target = track.id !in likedIds
                                             scope.launch {
-                                                AppModel.playback.toggleFavoriteFor(AppModel.toMediaId(track.id, provider))
+                                                AppModel.playback.toggleFavoriteFor(AppModel.toMediaId(track.id))
                                                 UiEvents.notify(if (target) s.album.liked else s.album.unliked)
                                             }
                                         },
                                         onAddToQueue = {
-                                            scope.launch { AppModel.playback.addToQueue(AppModel.toMediaId(track.id, provider)) }
+                                            scope.launch { AppModel.playback.addToQueue(AppModel.toMediaId(track.id)) }
                                             UiEvents.notify(s.library.queuedToPlay)
                                         },
                                         onPlayNext = {
-                                            scope.launch { AppModel.playback.addNextToQueue(AppModel.toMediaId(track.id, provider)) }
+                                            scope.launch { AppModel.playback.addNextToQueue(AppModel.toMediaId(track.id)) }
                                             UiEvents.notify(s.library.playNext)
                                         },
                                         isDownloaded = AppModel.isDownloaded(track.id),
@@ -534,16 +532,16 @@ private fun AlbumDetailContent(
             onToggleFavorite = {
                 val target = track.id !in likedIds
                 scope.launch {
-                    AppModel.playback.toggleFavoriteFor(AppModel.toMediaId(track.id, provider))
+                    AppModel.playback.toggleFavoriteFor(AppModel.toMediaId(track.id))
                     UiEvents.notify(if (target) s.album.liked else s.album.unliked)
                 }
             },
             onAddToQueue = {
-                scope.launch { AppModel.playback.addToQueue(AppModel.toMediaId(track.id, provider)) }
+                scope.launch { AppModel.playback.addToQueue(AppModel.toMediaId(track.id)) }
                 UiEvents.notify(s.library.queuedToPlay)
             },
             onPlayNext = {
-                scope.launch { AppModel.playback.addNextToQueue(AppModel.toMediaId(track.id, provider)) }
+                scope.launch { AppModel.playback.addNextToQueue(AppModel.toMediaId(track.id)) }
                 UiEvents.notify(s.library.playNext)
             },
             onAddToPlaylist = { addToPlaylistTrack = track },

@@ -519,22 +519,22 @@ class SearchScreen(private val initialQuery: String = "") : Screen {
                 onPlay = {
                     CoverFlight.play(track.id, track.coverUrl)
                     scope.launch {
-                        AppModel.playback.playQueue(listOf(AppModel.toMediaId(track.id, provider)), startIndex = 0)
+                        AppModel.playback.playQueue(listOf(AppModel.toMediaId(track.id)), startIndex = 0)
                     }
                 },
                 onToggleFavorite = {
                     scope.launch {
                         val target = track.id !in likedIds
-                        AppModel.playback.toggleFavoriteFor(AppModel.toMediaId(id))
+                        AppModel.playback.toggleFavoriteFor(AppModel.toMediaId(track.id))
                         cp.player.app.ui.util.UiEvents.notify(if (target) "已收藏" else "已取消收藏")
                     }
                 },
                 onAddToQueue = {
-                    scope.launch { AppModel.playback.addToQueue(AppModel.toMediaId(id)) }
+                    scope.launch { AppModel.playback.addToQueue(AppModel.toMediaId(track.id)) }
                     cp.player.app.ui.util.UiEvents.notify("已加入播放队列")
                 },
                 onPlayNext = {
-                    scope.launch { AppModel.playback.addNextToQueue(AppModel.toMediaId(id)) }
+                    scope.launch { AppModel.playback.addNextToQueue(AppModel.toMediaId(track.id)) }
                     cp.player.app.ui.util.UiEvents.notify("将在下一首播放")
                 },
                 onAddToPlaylist = { addToPlaylistTrack = track },

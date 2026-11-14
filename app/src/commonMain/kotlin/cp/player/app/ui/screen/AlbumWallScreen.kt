@@ -200,7 +200,7 @@ class AlbumWallScreenModel : ScreenModel {
             .let { (it as? BackendResult.Success)?.data }
         val provider = AppModel.activeProviderId()
         val ids = detail?.tracks?.map {
-            if (it.id.contains("://")) it.id else AppModel.toMediaId(id)
+            if (it.id.contains("://")) it.id else AppModel.toMediaId(it.id)
         }.orEmpty()
         if (ids.isEmpty()) return false.also { notifyPlayFailed() }
         AppModel.playback.playQueue(ids, startIndex = 0, sourceId = albumId)
