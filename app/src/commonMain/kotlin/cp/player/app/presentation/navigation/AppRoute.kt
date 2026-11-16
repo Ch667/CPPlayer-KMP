@@ -23,9 +23,11 @@ sealed interface AppRoute {
 
     /** 专辑详情页 */
     data class AlbumDetail(
-        val albumId: Long,
+        val albumResourceId: String,
         val fallback: AlbumSummary? = null,
-    ) : AppRoute
+    ) : AppRoute {
+        constructor(albumId: Long, fallback: AlbumSummary? = null) : this(albumId.toString(), fallback)
+    }
 
     /** 用户主页 */
     data class UserProfile(

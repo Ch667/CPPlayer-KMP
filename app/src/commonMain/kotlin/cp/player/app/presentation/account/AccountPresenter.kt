@@ -108,7 +108,9 @@ class AccountPresenter(
                 val declared = provider?.loginMethods
                     ?.map { it.trim().lowercase() }
                     ?.filter { it.isNotEmpty() }
-                loginChannels.value = if (declared.isNullOrEmpty()) {
+                loginChannels.value = if (provider?.id?.contains("spotify", ignoreCase = true) == true) {
+                    listOf(LoginChannel.QR)
+                } else if (declared.isNullOrEmpty()) {
                     LoginChannel.DEFAULT
                 } else {
                     buildList {

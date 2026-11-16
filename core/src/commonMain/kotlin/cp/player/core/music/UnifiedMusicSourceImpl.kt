@@ -853,6 +853,7 @@ internal fun Track.toDomain(providerId: String): TrackSummary = TrackSummary(
     artists = artists.map {
         ArtistSummary(id = it.id?.toLongOrNull() ?: 0, name = it.name, avatarUrl = null, resourceId = it.id.orEmpty())
     },
+    albumId = null,
 )
 
 internal fun cp.player.sdk.CommentItem.toDomain(): Comment = Comment(

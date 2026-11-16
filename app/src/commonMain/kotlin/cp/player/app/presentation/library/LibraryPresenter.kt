@@ -3,6 +3,7 @@ package cp.player.app.presentation.library
 import cp.player.app.AppModel
 import cp.player.app.presentation.UiPresenter
 import cp.player.core.BackendResult
+import cp.player.core.music.AlbumSummary
 import cp.player.core.music.PlaylistSummary
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +19,7 @@ import kotlinx.coroutines.withContext
 
 data class LibraryUiState(
     val playlists: List<PlaylistSummary> = emptyList(),
+    val favoriteAlbums: List<AlbumSummary> = emptyList(),
     val loading: Boolean = true,
     val error: String? = null,
     val selectedPlaylistId: String? = null,
@@ -58,6 +60,15 @@ class LibraryPresenter(
         scope.launch {
             AppModel.playlistGeneration.drop(1).collect { refresh() }
         }
+        scope.launch {
+            AppModel.albumFavoriteGeneration.drop(1).collect { refreshAlbums() }
+        }
+        scope.launch {
+            AppModel.accountGeneration.drop(1).collect { refreshAlbums() }
+        }
+        scope.launch {
+            AppModel.sourceGeneration.drop(1).collect { refreshAlbums() }
+        }
     }
 
     fun selectPlaylist(playlistId: Long?) {
@@ -81,33 +92,53 @@ class LibraryPresenter(
             try {
                 if (AppModel.activeProvider() == null) {
                     if (gen == refreshGen) {
-                        _state.update { s -> s.copy(playlists = emptyList(), loading = false, error = null) }
+                        _state.update { s -> s.copy(playlists = emptyList(), favoriteAlbums = emptyList(), loading = false, error = null) }
                     }
                     return@launch
                 }
-                val result = withContext(Dispatchers.IO) {
-                    runCatching { AppModel.musicRepository.getCurrentUserPlaylists() }.getOrNull()
+                val (result, albumsResult) = withContext(Dispatchers.IO) {
+                    kotlinx.coroutines.coroutineScope {
+                        val playlistsTask = kotlinx.coroutines.async {
+                            runCatching { AppModel.musicRepository.getCurrentUserPlaylists() }.getOrNull()
+                        }
+                        val albumsTask = kotlinx.coroutines.async {
+                            runCatching { AppModel.musicRepository.getUserAlbums(limit = 300) }.getOrNull()
+                        }
+                        playlistsTask.await() to albumsTask.await()
+                    }
                 }
                 if (gen != refreshGen) return@launch
                 _state.update { s ->
+                    val albums = (albumsResult as? BackendResult.Success)?.data ?: s.favoriteAlbums
                     when (result) {
                         is BackendResult.Success ->
                             if (silent && result.data == s.playlists) {
-                                s.copy(loading = false)
+                                s.copy(loading = false, favoriteAlbums = albums)
                             } else {
-                                s.copy(playlists = result.data, loading = false)
+                                s.copy(playlists = result.data, loading = false, favoriteAlbums = albums)
                             }
                         is BackendResult.Error ->
-                            if (s.playlists.isNotEmpty()) s.copy(loading = false)
-                            else s.copy(loading = false, error = result.message)
-                        is BackendResult.Unsupported -> s.copy(loading = false, error = result.message)
+                            if (s.playlists.isNotEmpty()) s.copy(loading = false, favoriteAlbums = albums)
+                            else s.copy(loading = false, error = result.message, favoriteAlbums = albums)
+                        is BackendResult.Unsupported -> s.copy(loading = false, error = result.message, favoriteAlbums = albums)
                         null ->
-                            if (s.playlists.isNotEmpty()) s.copy(loading = false)
-                            else s.copy(loading = false, error = "媒体库加载失败")
+                            if (s.playlists.isNotEmpty()) s.copy(loading = false, favoriteAlbums = albums)
+                            else s.copy(loading = false, error = "媒体库加载失败", favoriteAlbums = albums)
                     }
                 }
             } finally {
                 if (gen == refreshGen) _refreshing.value = false
+            }
+        }
+    }
+
+    fun refreshAlbums() {
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { AppModel.musicRepository.getUserAlbums(limit = 300) }.getOrNull()
+            }
+            if (result is BackendResult.Success) {
+                _state.update { it.copy(favoriteAlbums = result.data) }
             }
         }
     }
@@ -135,7 +166,7 @@ class LibraryPresenter(
         scope.launch {
             val result = AppModel.musicRepository.getPlaylistDetail(playlist.resourceId)
             if (result !is BackendResult.Success) return@launch
-            val ids = result.data.tracks.map { "${AppModel.activeProviderId()}://song/${it.id}" }
+            val ids = result.data.tracks.map { AppModel.toMediaId(it.id) }
             if (ids.isEmpty()) return@launch
             if (addOnly) {
                 ids.forEach { AppModel.playback.addToQueue(it) }

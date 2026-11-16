@@ -236,11 +236,7 @@ private fun LibraryScreenContent(model: LibraryScreenModel) {
             compact = !expanded,
             greeting = if (!expanded) profile?.nickname?.let(s.library::greeting) else null,
             actions = DesktopLibraryActions(
-                onSelectTab = { index ->
-                    model.selectTab(index)
-                    // 切到「专辑」页静默重拉一次：收藏可能发生在别的设备 / 别的页面
-                    if (index == 1) model.refreshAlbums()
-                },
+                onSelectTab = { index -> model.selectTab(index) },
                 onCreatePlaylist = { showCreateDialog = true },
                 onSearch = { navigator.push(AppRoute.LibrarySearch()) },
                 onImport = { navigator.push(AppRoute.ImportPlaylist) },
