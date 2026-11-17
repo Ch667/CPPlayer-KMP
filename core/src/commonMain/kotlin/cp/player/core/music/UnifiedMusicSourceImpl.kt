@@ -361,12 +361,27 @@ class UnifiedMusicSourceImpl private constructor(
         require(id.resourceType == (if (type == "music") "song" else type))
         val host = catalogHost(id)
         val cursorPaging = ExtendedCapability.GETCOMMENTPAGE in host.capabilities().supported
-        val page = if (cursorPaging) {
-            host.getCommentPage(CommentQuery(id.resourceId, type, limit, offset, sortType, cursor))
+        if (!cursorPaging && cursor != null) {
+            return@boundary BackendResult.Unsupported("Cursor comment pagination is not supported")
+        }
+        require(limit in 1..MAX_ITEMS && offset >= 0 && sortType in 1..3)
+        suspend fun requestPage(sort: Int): cp.player.sdk.CommentPage = if (cursorPaging) {
+            host.getCommentPage(CommentQuery(id.resourceId, type, limit, offset, sort, cursor))
         } else {
-            if (cursor != null) return@boundary BackendResult.Unsupported("Cursor comment pagination is not supported")
-            require(limit in 1..MAX_ITEMS && offset >= 0 && sortType in 1..3)
-            host.getComments(CommentPageRequest(id.resourceId, type, limit, offset, sortType))
+            host.getComments(CommentPageRequest(id.resourceId, type, limit, offset, sort))
+        }
+        val page = try {
+            requestPage(sortType)
+        } catch (failure: cp.player.core.provider.typed.CommentContractViolation) {
+            // NetEase's recommendation endpoint can prepend hot comments beyond pageSize
+            // (public song 186016: 26 for pageSize=20). Never truncate: its cursor covers
+            // the entire response. On the first page only, restart in genuine hot order.
+            val netease = host.context.session.providerId in setOf("netease", "netease-cloudmusic-rs")
+            if (!netease || sortType != 1 || offset != 0 || cursor != null ||
+                failure.field != "count" || failure.rule != "request-limit") throw failure
+            requestPage(2).also {
+                if (it.sortType != 2) throw cp.player.core.provider.typed.CommentContractViolation.hotSort()
+            }
         }
         BackendResult.Success(CommentPage(
             page.comments.map { it.toDomain() }, page.totalCount, page.hasMore, page.cursor, page.sortType,
@@ -489,6 +504,9 @@ class UnifiedMusicSourceImpl private constructor(
             block()
         } catch (e: CancellationException) {
             throw e
+        } catch (e: cp.player.core.provider.typed.CommentContractViolation) {
+            // Trusted host-generated field/rule only; never display raw provider responses or credentials.
+            BackendResult.Error("Provider InvalidResponse (${e.message})", cause = e)
         } catch (e: ProviderException) {
             if (e.failure.category == FailureCategory.UNSUPPORTED) BackendResult.Unsupported(e.failure.message)
             else BackendResult.Error("Provider ${e.failure.category}", cause = e)
@@ -853,7 +871,6 @@ internal fun Track.toDomain(providerId: String): TrackSummary = TrackSummary(
     artists = artists.map {
         ArtistSummary(id = it.id?.toLongOrNull() ?: 0, name = it.name, avatarUrl = null, resourceId = it.id.orEmpty())
     },
-    albumId = null,
 )
 
 internal fun cp.player.sdk.CommentItem.toDomain(): Comment = Comment(

@@ -65,6 +65,7 @@ class ProviderHost(
                 currentCoroutineContext().ensureActive()
                 throw ProviderException(Failure(FailureCategory.TIMEOUT, "Provider deadline exceeded"))
             } catch (e: CancellationException) { throw e }
+            catch (e: CommentContractViolation) { throw e }
             catch (e: ProviderException) {
                 if (e.failure.category.isBlank() || e.failure.category.length > 128 || e.failure.message.length > 4096)
                     throw ProviderException(Failure(FailureCategory.INVALID_RESPONSE, "Invalid provider failure"))
@@ -634,8 +635,10 @@ class ProviderHost(
         return call {
             requireCapability(Capability.COMMENTS_LIST)
             adapter.getComments(request).also {
-                require(it.comments.size <= request.limit && it.totalCount in 0..MAX_SAFE_INTEGER)
-                require(it.cursor.length <= 4096 && it.sortType in 1..3)
+                if (it.comments.size > request.limit) throw CommentContractViolation.pageSize()
+                require(it.totalCount in 0..MAX_SAFE_INTEGER)
+                require(it.cursor.length <= 4096)
+                if (it.sortType !in 1..3) throw CommentContractViolation.sort()
                 it.comments.forEach { comment -> validateComment(comment, 0) }
                 it.write(WireWriter())
             }
