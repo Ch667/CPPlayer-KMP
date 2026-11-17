@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -98,10 +99,10 @@ class LibraryPresenter(
                 }
                 val (result, albumsResult) = withContext(Dispatchers.IO) {
                     kotlinx.coroutines.coroutineScope {
-                        val playlistsTask = kotlinx.coroutines.async {
+                        val playlistsTask = async {
                             runCatching { AppModel.musicRepository.getCurrentUserPlaylists() }.getOrNull()
                         }
-                        val albumsTask = kotlinx.coroutines.async {
+                        val albumsTask = async {
                             runCatching { AppModel.musicRepository.getUserAlbums(limit = 300) }.getOrNull()
                         }
                         playlistsTask.await() to albumsTask.await()
