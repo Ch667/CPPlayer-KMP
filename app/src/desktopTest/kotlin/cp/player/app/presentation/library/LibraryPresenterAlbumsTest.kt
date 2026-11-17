@@ -1,4 +1,4 @@
-package cp.player.app.ui.presentation.library
+package cp.player.app.presentation.library
 
 import cp.player.app.presentation.library.LibraryUiState
 import cp.player.core.music.AlbumSummary

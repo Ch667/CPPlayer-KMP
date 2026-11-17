@@ -157,18 +157,24 @@ fun SongOptionsSheet(
             onDismiss()
         } else if (!albumName.isNullOrBlank()) {
             val query = albumName
-            onDismiss()
             albumScope.launch {
-                val result = runCatching {
-                    cp.player.app.AppModel.musicRepository.search(query, cp.player.app.repository.SearchType.ALBUM)
-                }.getOrNull()
-                val albums = (result as? cp.player.core.BackendResult.Success)?.data?.albums.orEmpty()
-                val best = albums.firstOrNull { it.name.equals(query, ignoreCase = true) }
-                    ?: albums.firstOrNull()
-                if (best != null) {
-                    albumNavigator?.push(cp.player.app.ui.screen.AlbumDetailScreen(best.id, best))
-                } else {
-                    cp.player.app.ui.util.UiEvents.notify("没有找到这张专辑")
+                try {
+                    val result = cp.player.app.AppModel.musicRepository.search(query, cp.player.app.repository.SearchType.ALBUM)
+                    val albums = (result as? cp.player.core.BackendResult.Success)?.data?.albums.orEmpty()
+                    val best = albums.firstOrNull { it.name.equals(query, ignoreCase = true) }
+                        ?: albums.firstOrNull()
+                    if (best == null) {
+                        cp.player.app.ui.util.UiEvents.notify("没有找到这张专辑")
+                    } else if (albumNavigator == null) {
+                        cp.player.app.ui.util.UiEvents.notify("当前页面无法打开专辑，请返回歌曲列表后重试")
+                    } else {
+                        albumNavigator.push(cp.player.app.ui.screen.AlbumDetailScreen(best.id, best))
+                        onDismiss()
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    cp.player.app.ui.util.UiEvents.notify("专辑搜索失败，请重试")
                 }
             }
         }

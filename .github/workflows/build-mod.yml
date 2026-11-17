@@ -20,7 +20,7 @@ jobs:
       - name: Mod regression tests
         run: |
           chmod +x gradlew
-          ./gradlew :app:desktopTest --tests 'cp.player.app.ui.screen.ShowSongAlbumSettingTest' --tests 'cp.player.app.ui.screen.AlbumPlaybackWiringTest' --tests 'cp.player.app.presentation.library.LibraryPresenterAlbumsTest' --tests 'cp.player.app.ui.model.CommentSortVisibilityTest' --no-daemon
+          ./gradlew :app:desktopTest --tests 'cp.player.app.ui.screen.ShowSongAlbumSettingTest' --tests 'cp.player.app.ui.screen.AlbumPlaybackWiringTest' --tests 'cp.player.app.presentation.library.LibraryPresenterAlbumsTest' --tests 'cp.player.app.ui.model.CommentSortVisibilityTest' --tests 'cp.player.app.ui.screen.SpotifyLoginUrlTest' --no-daemon
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -32,7 +32,6 @@ jobs:
             app/build/test-results/
 
   build:
-    needs: regression
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
