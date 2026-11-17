@@ -117,7 +117,6 @@ import cp.player.app.ui.component.rememberConfirmState
 import cp.player.app.ui.component.settingsRowHighlightContent
 import cp.player.app.ui.theme.cpCardSurface
 import cp.player.app.presentation.navigation.AppRoute
-import cp.player.app.platform.openUrl
 import cp.player.app.ui.navigation.LocalAppNavigator
 import kotlinx.coroutines.launch
 
@@ -548,8 +547,6 @@ internal fun AccountLoginPane(
     val defaultCountryCode by model.defaultCountryCode.collectAsState()
     val captchaImage by model.captchaImage.collectAsState()
     val imageCaptcha by model.imageCaptcha.collectAsState()
-    val activeProvider by model.activeProvider.collectAsState()
-    val isSpotifyProvider = activeProvider?.id?.contains("spotify", ignoreCase = true) == true
 
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
@@ -590,7 +587,6 @@ internal fun AccountLoginPane(
                         targetAppInstalled = targetAppInstalled,
                         onSaveQr = { model.saveQrCode() },
                         onOpenTargetApp = { model.openTargetApp() },
-                        isSpotifyProvider = isSpotifyProvider,
                         onRefresh = { model.fetchQrCode() },
                     )
                     LoginChannel.EMAIL -> EmailLoginPanel(
@@ -780,7 +776,6 @@ private fun QrLoginPanel(
     targetAppInstalled: Boolean,
     onSaveQr: () -> Unit,
     onOpenTargetApp: () -> Unit,
-    isSpotifyProvider: Boolean = false,
     onRefresh: () -> Unit,
 ) {
     val s = cpStrings().account
@@ -818,20 +813,6 @@ private fun QrLoginPanel(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
-            }
-        }
-
-        if (isSpotifyProvider && !qrUrl.isNullOrBlank()) {
-            Spacer(Modifier.height(12.dp))
-            Button(
-                onClick = { openUrl(spotifyBrowserLoginUrl(qrUrl)) },
-                enabled = !isLoading,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = MaterialTheme.shapes.medium,
-            ) {
-                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(CpIconSize.inline))
-                Spacer(Modifier.width(8.dp))
-                CpText("在浏览器中登录", style = MaterialTheme.typography.labelLarge)
             }
         }
 
