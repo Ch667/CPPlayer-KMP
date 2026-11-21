@@ -344,16 +344,16 @@ private fun AlbumDetailContent(
                                         onToggleFavorite = {
                                             val target = track.id !in likedIds
                                             scope.launch {
-                                                AppModel.playback.toggleFavoriteFor("$provider://song/${track.id}")
+                                                AppModel.playback.toggleFavoriteFor(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider))
                                                 UiEvents.notify(if (target) s.album.liked else s.album.unliked)
                                             }
                                         },
                                         onAddToQueue = {
-                                            scope.launch { AppModel.playback.addToQueue("$provider://song/${track.id}") }
+                                            scope.launch { AppModel.playback.addToQueue(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider)) }
                                             UiEvents.notify(s.library.queuedToPlay)
                                         },
                                         onPlayNext = {
-                                            scope.launch { AppModel.playback.addNextToQueue("$provider://song/${track.id}") }
+                                            scope.launch { AppModel.playback.addNextToQueue(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider)) }
                                             UiEvents.notify(s.library.playNext)
                                         },
                                         isDownloaded = AppModel.isDownloaded(track.id),
@@ -385,16 +385,16 @@ private fun AlbumDetailContent(
             onToggleFavorite = {
                 val target = track.id !in likedIds
                 scope.launch {
-                    AppModel.playback.toggleFavoriteFor("$provider://song/${track.id}")
+                    AppModel.playback.toggleFavoriteFor(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider))
                     UiEvents.notify(if (target) s.album.liked else s.album.unliked)
                 }
             },
             onAddToQueue = {
-                scope.launch { AppModel.playback.addToQueue("$provider://song/${track.id}") }
+                scope.launch { AppModel.playback.addToQueue(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider)) }
                 UiEvents.notify(s.library.queuedToPlay)
             },
             onPlayNext = {
-                scope.launch { AppModel.playback.addNextToQueue("$provider://song/${track.id}") }
+                scope.launch { AppModel.playback.addNextToQueue(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider)) }
                 UiEvents.notify(s.library.playNext)
             },
             onAddToPlaylist = { addToPlaylistTrack = track },

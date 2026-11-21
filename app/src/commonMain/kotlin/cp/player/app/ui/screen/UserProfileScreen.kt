@@ -172,7 +172,7 @@ private fun UserProfileContent(
 
     val bundle = state.bundle
     val songs = bundle?.songs.orEmpty()
-    val mediaIds = remember(songs) { songs.map { "$provider://song/${it.id}" } }
+    val mediaIds = remember(songs) { songs.map { cp.player.core.music.CPMediaId.toCanonicalMediaId(it.id, provider) } }
     val isMe = me?.resourceId == uid
     // 热门歌曲最多 50 首，默认全展开会把下面的「专辑」推到很远的滚动位置。
     var songsExpanded by remember(uid) { mutableStateOf(false) }
@@ -250,7 +250,7 @@ private fun UserProfileContent(
                                 CoverFlight.play(track.id, track.coverUrl)
                                 // 点第 N 首时把**完整**列表交给播放器：否则播完折叠出来的
                                 // 10 首队列就断了，用户会以为「这个歌手的歌只有 10 首」。
-                                AppModel.playTrackClicked("$provider://song/${track.id}") {
+                                AppModel.playTrackClicked(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider)) {
                                     AppModel.playback.playQueue(mediaIds, index)
                                 }
                             },
@@ -269,16 +269,16 @@ private fun UserProfileContent(
                                     onToggleFavorite = {
                                         scope.launch {
                                             val target = track.id !in likedIds
-                                            AppModel.playback.toggleFavoriteFor("$provider://song/${track.id}")
+                                            AppModel.playback.toggleFavoriteFor(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider))
                                             UiEvents.notify(if (target) s.album.liked else s.album.unliked)
                                         }
                                     },
                                     onAddToQueue = {
-                                        scope.launch { AppModel.playback.addToQueue("$provider://song/${track.id}") }
+                                        scope.launch { AppModel.playback.addToQueue(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider)) }
                                         UiEvents.notify(s.library.queuedToPlay)
                                     },
                                     onPlayNext = {
-                                        scope.launch { AppModel.playback.addNextToQueue("$provider://song/${track.id}") }
+                                        scope.launch { AppModel.playback.addNextToQueue(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider)) }
                                         UiEvents.notify(s.library.playNext)
                                     },
                                     isDownloaded = AppModel.isDownloaded(track.id),
@@ -461,7 +461,7 @@ private fun UserProfileContent(
                 CoverFlight.play(track.id, track.coverUrl)
                 // 与行内点击走**同一条**播放动线：一起听「跟随」开启时点「播放」是
                 // 「下一首播放」，直接 playQueue 会绕过那个语义。
-                AppModel.playTrackClicked("$provider://song/${track.id}") {
+                AppModel.playTrackClicked(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider)) {
                     val index = songs.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
                     AppModel.playback.playQueue(mediaIds, index)
                 }
@@ -469,16 +469,16 @@ private fun UserProfileContent(
             onToggleFavorite = {
                 scope.launch {
                     val target = track.id !in likedIds
-                    AppModel.playback.toggleFavoriteFor("$provider://song/${track.id}")
+                    AppModel.playback.toggleFavoriteFor(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider))
                     UiEvents.notify(if (target) s.album.liked else s.album.unliked)
                 }
             },
             onAddToQueue = {
-                scope.launch { AppModel.playback.addToQueue("$provider://song/${track.id}") }
+                scope.launch { AppModel.playback.addToQueue(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider)) }
                 UiEvents.notify(s.library.queuedToPlay)
             },
             onPlayNext = {
-                scope.launch { AppModel.playback.addNextToQueue("$provider://song/${track.id}") }
+                scope.launch { AppModel.playback.addNextToQueue(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider)) }
                 UiEvents.notify(s.library.playNext)
             },
             onAddToPlaylist = { addToPlaylistTrack = track },
