@@ -1,6 +1,7 @@
 package cp.player.app.ui.component
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import cp.player.app.ui.navigation.LocalAppNavigator
+import cp.player.core.music.ArtistSummary
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
@@ -123,6 +130,7 @@ fun SongOptionsSheet(
     onShare: () -> Unit = {},
     onPlayMv: (() -> Unit)? = null,
     coverUrl: String? = null,
+    artists: List<ArtistSummary> = emptyList(),
     onAddToLocalPlaylist: (() -> Unit)? = null,
     onOpenInFileManager: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
@@ -148,6 +156,7 @@ fun SongOptionsSheet(
             onShare = onShare,
             onPlayMv = onPlayMv,
             coverUrl = coverUrl,
+            artists = artists,
             onAddToLocalPlaylist = onAddToLocalPlaylist,
             onOpenInFileManager = onOpenInFileManager,
             onRemoveFromPlaylist = onRemoveFromPlaylist,
@@ -176,6 +185,7 @@ internal fun SongOptionsSheetContent(
     onShare: () -> Unit = {},
     onPlayMv: (() -> Unit)? = null,
     coverUrl: String? = null,
+    artists: List<ArtistSummary> = emptyList(),
     onAddToLocalPlaylist: (() -> Unit)? = null,
     onOpenInFileManager: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
@@ -185,6 +195,19 @@ internal fun SongOptionsSheetContent(
     onDislike: (() -> Unit)? = null,
 ) {
     val s = cpStrings()
+    val appNavigator = LocalAppNavigator.current
+    val clickableArtists = remember(artists) { resolveClickableArtists(artists) }
+    var showArtistPicker by remember { mutableStateOf(false) }
+    val onSubtitleArtistClick: (() -> Unit)? = if (clickableArtists.isNotEmpty()) {
+        {
+            if (clickableArtists.size == 1) {
+                onDismiss()
+                navigateToArtistProfile(appNavigator, clickableArtists.single())
+            } else {
+                showArtistPicker = true
+            }
+        }
+    } else null
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
             Modifier.widthIn(max = 640.dp).fillMaxWidth()
@@ -198,6 +221,7 @@ internal fun SongOptionsSheetContent(
                     subtitle = artistName,
                     coverUrl = coverUrl,
                     circleCover = true,
+                    onSubtitleClick = onSubtitleArtistClick,
                 )
 
                 Row(
@@ -346,7 +370,19 @@ internal fun SongOptionsSheetContent(
                 }
             }
         }
+
+    if (showArtistPicker) {
+        ArtistPickerSheet(
+            artists = clickableArtists,
+            onSelect = { artist ->
+                showArtistPicker = false
+                onDismiss()
+                navigateToArtistProfile(appNavigator, artist)
+            },
+            onDismiss = { showArtistPicker = false },
+        )
     }
+}
 /**
  * 歌单「更多」弹层 —— 手机 / 触屏形态。
  *
@@ -558,6 +594,7 @@ private fun SheetHeader(
     subtitle: String,
     coverUrl: String?,
     circleCover: Boolean,
+    onSubtitleClick: (() -> Unit)? = null,
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Surface(
@@ -592,8 +629,14 @@ private fun SheetHeader(
             CpText(
                 subtitle,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = if (onSubtitleClick != null) FontWeight.Medium else FontWeight.Normal,
+                color = if (onSubtitleClick != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
+                modifier = if (onSubtitleClick != null) {
+                    Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(onClick = onSubtitleClick)
+                } else Modifier,
             )
         }
     }

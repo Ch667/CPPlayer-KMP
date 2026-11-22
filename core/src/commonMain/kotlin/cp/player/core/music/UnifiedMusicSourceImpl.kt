@@ -821,10 +821,13 @@ class UnifiedMusicSourceImpl private constructor(
         val detail = catalogHost(id).getAlbum(id.resourceId)
         val album = detail.album
         val summary = album.toDomain()
+        val albumArtists = album.artists.map {
+            ArtistSummary(id = it.id?.toLongOrNull() ?: 0L, name = it.name, avatarUrl = null, resourceId = it.id.orEmpty())
+        }
         BackendResult.Success(AlbumDetail(
             summary.id, summary.name, summary.coverUrl, summary.artistName, summary.artistId,
             summary.publishTimeMs, album.company, album.description, detail.tracks.map { it.toDomain(id.providerId) },
-            summary.resourceId, summary.artistResourceId,
+            summary.resourceId, summary.artistResourceId, albumArtists,
         ))
     }
 

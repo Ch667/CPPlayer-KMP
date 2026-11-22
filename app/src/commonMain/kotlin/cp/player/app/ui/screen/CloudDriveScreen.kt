@@ -225,6 +225,7 @@ private fun CloudDriveContent(
         SongOptionsSheet(
             songName = track.name,
             artistName = track.artist,
+            artists = track.artists,
             coverUrl = track.coverUrl,
             isFavorite = track.id in likedIds,
             isDownloaded = AppModel.isDownloaded(track.id),

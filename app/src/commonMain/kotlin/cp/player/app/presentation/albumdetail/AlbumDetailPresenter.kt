@@ -80,7 +80,10 @@ class AlbumDetailPresenter(
     }
 
     fun load(albumId: String, fallback: AlbumSummary?) {
-        if (loadedId == albumId && _state.value.detail != null) return
+        // 只有「已成功加载」才早退。失败时 detail 可能是列表页传来的 fallback（tracks 为空），
+        // 若仍早退，重试按钮就永远不会真正重新请求。
+        val current = _state.value
+        if (loadedId == albumId && current.detail != null && current.error == null) return
         loadedId = albumId
         scope.launch {
             _state.value = AlbumUiState(loading = true)
@@ -105,6 +108,17 @@ class AlbumDetailPresenter(
                             company = null,
                             description = null,
                             tracks = emptyList(),
+                            artists = listOfNotNull(
+                                it.artistName?.takeIf { name -> name.isNotBlank() }?.let { name ->
+                                    val resId = it.artistResourceId ?: it.artistId?.toString().orEmpty()
+                                    cp.player.core.music.ArtistSummary(
+                                        id = it.artistId ?: resId.toLongOrNull() ?: 0L,
+                                        name = name,
+                                        avatarUrl = null,
+                                        resourceId = resId,
+                                    )
+                                }
+                            ),
                         )
                     },
                 )

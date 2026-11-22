@@ -493,6 +493,7 @@ fun RecentPlaysOptionsHost(
     SongOptionsSheet(
         songName = track.name,
         artistName = track.artist,
+        artists = track.artists,
         coverUrl = track.coverUrl,
         isFavorite = isFav,
         isDownloaded = cloudId != null && (isLocal || AppModel.isDownloaded(cloudId)),

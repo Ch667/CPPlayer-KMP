@@ -624,6 +624,7 @@ fun PlaylistDetailContent(
         SongOptionsSheet(
             songName = track.name,
             artistName = track.artist,
+            artists = track.artists,
             isFavorite = model.isLiked(track.id),
             isDownloaded = AppModel.isDownloaded(track.id),
             onDismiss = { optionsTarget = null },
