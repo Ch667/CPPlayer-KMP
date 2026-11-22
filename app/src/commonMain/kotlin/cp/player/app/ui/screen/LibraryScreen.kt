@@ -236,7 +236,7 @@ private fun LibraryScreenContent(model: LibraryScreenModel) {
             compact = !expanded,
             greeting = if (!expanded) profile?.nickname?.let(s.library::greeting) else null,
             actions = DesktopLibraryActions(
-                onSelectTab = model::selectTab,
+                onSelectTab = { index -> model.selectTab(index) },
                 onCreatePlaylist = { showCreateDialog = true },
                 onSearch = { navigator.push(AppRoute.LibrarySearch()) },
                 onImport = { navigator.push(AppRoute.ImportPlaylist) },
@@ -245,7 +245,8 @@ private fun LibraryScreenContent(model: LibraryScreenModel) {
                 onDownloads = { navigator.push(AppRoute.Downloads()) },
                 onLocal = { navigator.push(AppRoute.LocalLibrary()) },
                 onCloud = { navigator.push(AppRoute.CloudDrive()) },
-                onAlbumWall = { navigator.push(AppRoute.AlbumWall()) },
+                onAlbumWall = { navigator.push(AppRoute.AlbumWall(initialSource = "library")) },
+                onOpenAlbum = { album -> navigator.push(AppRoute.AlbumDetail(album.resourceId)) },
                 onRetry = model::refresh,
                 onOpenPlaylist = { navigator.push(AppRoute.PlaylistDetail(it)) },
                 onPlaylistOptions = { selectedPlaylist = it },
