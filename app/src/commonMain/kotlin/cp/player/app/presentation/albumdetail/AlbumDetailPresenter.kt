@@ -108,6 +108,17 @@ class AlbumDetailPresenter(
                             company = null,
                             description = null,
                             tracks = emptyList(),
+                            artists = listOfNotNull(
+                                it.artistName?.takeIf { name -> name.isNotBlank() }?.let { name ->
+                                    val resId = it.artistResourceId ?: it.artistId?.toString().orEmpty()
+                                    cp.player.core.music.ArtistSummary(
+                                        id = it.artistId ?: resId.toLongOrNull() ?: 0L,
+                                        name = name,
+                                        avatarUrl = null,
+                                        resourceId = resId,
+                                    )
+                                }
+                            ),
                         )
                     },
                 )

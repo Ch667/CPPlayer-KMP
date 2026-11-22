@@ -50,6 +50,7 @@ import cp.player.app.ui.component.LazyScrollColumn
 import cp.player.app.ui.component.ScrollColumn
 import cp.player.app.ui.component.SectionHeader
 import cp.player.app.ui.component.SongItem
+import cp.player.app.ui.component.navigateToArtistProfile
 import cp.player.app.ui.theme.cpCardSurface
 import cp.player.app.ui.component.SongMenuActions
 import cp.player.app.ui.component.SongOptionsSheet
@@ -194,6 +195,7 @@ private fun AlbumDetailContent(
             onShuffle = shufflePlay,
             onAddToQueue = queueAll,
             onDownloadAll = { AppModel.downloadTracks(allTracks) },
+            onArtistClick = { artist -> navigateToArtistProfile(navigator, artist) },
         )
     }
     val albumTrackItems: LazyListScope.() -> Unit = {
@@ -424,6 +426,7 @@ private fun AlbumDetailContent(
         SongOptionsSheet(
             songName = track.name,
             artistName = track.artist,
+            artists = track.artists,
             coverUrl = track.coverUrl,
             isFavorite = track.id in likedIds,
             isDownloaded = AppModel.isDownloaded(track.id),

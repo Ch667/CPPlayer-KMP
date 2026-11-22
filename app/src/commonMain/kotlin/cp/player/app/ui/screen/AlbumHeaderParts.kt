@@ -1,7 +1,10 @@
 package cp.player.app.ui.screen
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -10,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Bookmark
@@ -19,13 +23,20 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cp.player.app.i18n.cpStrings
 import cp.player.app.ui.component.AlbumCoverThumb
+import cp.player.app.ui.component.ArtistPickerSheet
 import cp.player.app.ui.component.CpActionButtonGroup
 import cp.player.app.ui.component.CpActionGroupItem
 import cp.player.app.ui.component.CpAutoSizeText
@@ -33,8 +44,10 @@ import cp.player.app.ui.component.CpText
 import cp.player.app.ui.component.CpExpandableText
 import cp.player.app.ui.component.CpToggleChip
 import cp.player.app.ui.component.epochMillisToYear
+import cp.player.app.ui.component.resolveClickableArtists
 import cp.player.app.ui.util.formatTimeMs
 import cp.player.core.music.AlbumDetail
+import cp.player.core.music.ArtistSummary
 
 /**
  * 专辑详情**头部**：封面 + 名称 + 歌手 / 发行信息 + 说明 + 收藏 + 动作组。
@@ -69,16 +82,34 @@ internal fun AlbumHeader(
     onShuffle: () -> Unit,
     onAddToQueue: () -> Unit,
     onDownloadAll: () -> Unit,
+    onArtistClick: ((ArtistSummary) -> Unit)? = null,
 ) {
     val s = cpStrings()
-    val metaLine = buildList {
-        detail.artistName?.takeIf { it.isNotBlank() }?.let(::add)
+    val clickableArtists = remember(detail.artists, detail.artistName, detail.artistId, detail.artistResourceId) {
+        resolveClickableArtists(
+            artists = detail.artists,
+            fallbackName = detail.artistName,
+            fallbackId = detail.artistId,
+            fallbackResourceId = detail.artistResourceId,
+        )
+    }
+    var showArtistPicker by remember { mutableStateOf(false) }
+
+    val artistText = detail.artistName?.takeIf { it.isNotBlank() }
+    val tailMeta = buildList {
         detail.publishTimeMs?.let { ms ->
             epochMillisToYear(ms)?.let { year -> add(s.album.releasedYear(year)) }
         }
         detail.company?.takeIf { it.isNotBlank() }?.let(::add)
         if (trackCount > 0) add(s.album.albumMeta(trackCount, formatTimeMs(totalDurationMs)))
     }.joinToString(" · ")
+
+    val handleArtistTap: (() -> Unit)? = if (onArtistClick != null && clickableArtists.isNotEmpty()) {
+        {
+            if (clickableArtists.size == 1) onArtistClick(clickableArtists.single())
+            else showArtistPicker = true
+        }
+    } else null
 
     val hasTracks = trackCount > 0
     val actions = listOf(
@@ -101,7 +132,7 @@ internal fun AlbumHeader(
             Column(Modifier.weight(1f)) {
                 AlbumTitle(detail.name, MaterialTheme.typography.headlineMedium)
                 Spacer(Modifier.height(8.dp))
-                AlbumMetaLine(metaLine)
+                AlbumMetaLine(artistText = artistText, tailMeta = tailMeta, onArtistClick = handleArtistTap)
                 AlbumDescriptionBlock(detail.description, maxLines = 6)
                 Spacer(Modifier.height(16.dp))
                 CpActionButtonGroup(actions, modifier = Modifier.fillMaxWidth())
@@ -124,13 +155,21 @@ internal fun AlbumHeader(
             Spacer(Modifier.height(16.dp))
             AlbumTitle(detail.name, MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(8.dp))
-            AlbumMetaLine(metaLine)
+            AlbumMetaLine(artistText = artistText, tailMeta = tailMeta, onArtistClick = handleArtistTap)
             AlbumDescriptionBlock(detail.description, maxLines = 6)
             Spacer(Modifier.height(16.dp))
             CpActionButtonGroup(actions, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(10.dp))
             AlbumFavoriteChip(isFavorite = isFavorite, pending = favoritePending, onClick = onToggleFavorite)
         }
+    }
+
+    if (showArtistPicker && onArtistClick != null) {
+        ArtistPickerSheet(
+            artists = clickableArtists,
+            onSelect = onArtistClick,
+            onDismiss = { showArtistPicker = false },
+        )
     }
 }
 
@@ -178,15 +217,50 @@ private fun AlbumTitle(name: String, style: TextStyle) {
     )
 }
 
-/** 元信息行：歌手 · 发行年 · 发行方 · N 首 / 时长。全空时**不画**（否则留一条空行）。 */
+/** 元信息行：歌手（可点跳主页，使用主题强调色）· 发行年 · 发行方 · N 首 / 时长。全空时**不画**。 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AlbumMetaLine(text: String) {
-    if (text.isBlank()) return
-    CpText(
-        text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+private fun AlbumMetaLine(
+    artistText: String?,
+    tailMeta: String,
+    onArtistClick: (() -> Unit)?,
+) {
+    if (artistText.isNullOrBlank() && tailMeta.isBlank()) return
+    FlowRow(
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        if (!artistText.isNullOrBlank()) {
+            val clickableModifier = if (onArtistClick != null) {
+                Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(onClick = onArtistClick)
+            } else Modifier
+            CpText(
+                artistText,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (onArtistClick != null) FontWeight.Medium else FontWeight.Normal,
+                color = if (onArtistClick != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                modifier = clickableModifier,
+            )
+        }
+        if (!artistText.isNullOrBlank() && tailMeta.isNotBlank()) {
+            CpText(
+                " · ",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (tailMeta.isNotBlank()) {
+            CpText(
+                tailMeta,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+            )
+        }
+    }
 }
 
 /** 专辑说明。**不套卡片**：说明本身是长文，再包一层容器只会多一道边框和一层内边距。 */

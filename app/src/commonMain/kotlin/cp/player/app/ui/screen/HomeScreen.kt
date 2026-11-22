@@ -448,6 +448,7 @@ private fun HomeScreenContent(model: HomeScreenModel) {
             albumName = track.album,
             albumId = track.albumId,
             artistName = track.artist,
+            artists = track.artists,
             coverUrl = track.coverUrl,
             isFavorite = favId in likedIds,
             isDownloaded = AppModel.isDownloaded(track.id),

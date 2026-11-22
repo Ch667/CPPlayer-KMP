@@ -207,6 +207,7 @@ data class AlbumDetail(
     val tracks: List<TrackSummary>,
     val resourceId: String = if (id == 0L) "" else id.toString(),
     val artistResourceId: String? = artistId?.toString(),
+    val artists: List<ArtistSummary> = emptyList(),
 ) : cp.player.core.util.JavaSerializable
 
 /**

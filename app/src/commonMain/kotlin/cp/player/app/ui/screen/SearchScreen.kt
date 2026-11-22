@@ -21,11 +21,20 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
+import cp.player.app.ui.theme.cpNestedSurface
 import cp.player.app.ui.component.CpText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -62,6 +71,7 @@ import cp.player.app.ui.component.CpSectionHeaderSkeleton
 import cp.player.app.ui.component.CpSkeletonCaption
 import cp.player.app.ui.component.CpSongRowSkeleton
 import cp.player.app.ui.component.CpSpacing
+import cp.player.app.ui.component.MorphingShape
 import cp.player.app.ui.component.PageHeader
 import cp.player.app.ui.theme.cpCardSurface
 import cp.player.app.ui.component.LazyScrollColumn
@@ -359,46 +369,17 @@ class SearchScreen(private val initialQuery: String = "") : Screen {
                                 }
                             }
                             if (state.query.isBlank()) {
-                                // 区块间距：两块之间必须是**区块**级的空白（28dp），不是行间距（4dp）。
-                                // 原先两块只隔 12dp，最近搜索的最后一条与「热门搜索」标题几乎贴在一起，
-                                // 读起来像同一个列表的两个标题。
-                                // ⚠️ 只在上面那块真的画出来时才补 —— 否则页面顶部会多一段空。
                                 if (state.searchHistory.isNotEmpty()) {
                                     item { Spacer(Modifier.height(CpSpacing.section)) }
                                 }
-                                item { SectionHeader(title = "热门搜索") }
-                                items(state.hotSearches.size) { index ->
-                                    val hot = state.hotSearches[index]
-                                    Row(
-                                        Modifier.fillMaxWidth().clickable { model.search(hot.keyword) }.padding(vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        CpText(
-                                            "${index + 1}",
-                                            modifier = Modifier.width(28.dp),
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = if (index < 3) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                        Column(Modifier.weight(1f)) {
-                                            CpText(hot.keyword, maxLines = 1)
-                                            if (hot.description.isNotBlank()) {
-                                                // 热词说明是「这个词指什么」的唯一解释（常带
-                                                // 歌手 / 专辑 / 事件），单行会把关键部分裁掉。
-                                                CpText(
-                                                    hot.description,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    maxLines = 2,
-                                                )
-                                            }
-                                        }
-                                        Icon(Icons.AutoMirrored.Filled.TrendingUp, null, tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
-                                    }
-                                }
                                 item {
-                                    ContentState(
-                                        title = "发现下一首喜欢的音乐",
-                                        message = "输入关键词后按搜索键",
-                                        modifier = Modifier.padding(top = 20.dp),
+                                    SearchExploreCard(
+                                        selectedType = state.searchType,
+                                        onPickType = { type ->
+                                            model.selectSearchType(type)
+                                            searchFocusRequester.requestFocus()
+                                        },
+                                        onFocusSearch = { searchFocusRequester.requestFocus() },
                                     )
                                 }
                             }
@@ -580,6 +561,7 @@ class SearchScreen(private val initialQuery: String = "") : Screen {
                 albumName = track.album,
                 albumId = track.albumId,
                 artistName = track.artist,
+                artists = track.artists,
                 coverUrl = track.coverUrl,
                 isFavorite = track.id in likedIds,
                 isDownloaded = AppModel.isDownloaded(track.id),
@@ -753,5 +735,116 @@ private fun SearchHistoryMoreCard(
             color = MaterialTheme.colorScheme.onSecondaryContainer,
             maxLines = 1,
         )
+    }
+}
+
+/**
+ * M3 Expressive 搜索引导卡片：关闭热门搜索后替代热搜榜，展示 MorphingShape 装饰徽章与搜索范围快捷入口。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SearchExploreCard(
+    selectedType: Int,
+    onPickType: (Int) -> Unit,
+    onFocusSearch: () -> Unit,
+) {
+    ElevatedCard(
+        onClick = onFocusSearch,
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.elevatedCardColors(containerColor = cpCardSurface()),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Box(
+                    modifier = Modifier.size(52.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    MorphingShape(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.GraphicEq,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    CpText(
+                        text = "发现下一首喜欢的音乐",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    CpText(
+                        text = "选择分类或直接输入歌名、歌手与专辑",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                    )
+                }
+            }
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                val quickScopes = listOf(
+                    Triple(SearchType.SONG, "搜单曲", Icons.Filled.MusicNote),
+                    Triple(SearchType.ARTIST, "搜歌手", Icons.Filled.Person),
+                    Triple(SearchType.ALBUM, "搜专辑", Icons.Filled.Album),
+                    Triple(SearchType.PLAYLIST, "搜歌单", Icons.Filled.QueueMusic),
+                )
+                quickScopes.forEach { (type, label, icon) ->
+                    val isActive = selectedType == type
+                    AssistChip(
+                        onClick = { onPickType(type) },
+                        label = {
+                            CpText(
+                                text = label,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (isActive) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = if (isActive) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        },
+                        shape = if (isActive) CpShapes.full else MaterialTheme.shapes.medium,
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = if (isActive) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                cpNestedSurface()
+                            },
+                        ),
+                        border = null,
+                    )
+                }
+            }
+        }
     }
 }

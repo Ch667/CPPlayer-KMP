@@ -215,6 +215,7 @@ class PersonalFmScreen : Screen {
                 albumName = track.album,
                 albumId = track.albumId,
                 artistName = track.artist,
+                artists = track.artists,
                 coverUrl = track.coverUrl,
                 isFavorite = actions.isFavorite,
                 isDownloaded = actions.isDownloaded,
