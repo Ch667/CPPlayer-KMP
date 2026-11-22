@@ -424,6 +424,8 @@ private fun AlbumDetailContent(
             songName = track.name,
             artistName = track.artist,
             coverUrl = track.coverUrl,
+            albumName = track.album,
+            albumId = track.albumId ?: albumId.toLongOrNull(),
             isFavorite = track.id in likedIds,
             isDownloaded = AppModel.isDownloaded(track.id),
             onDismiss = { optionsTarget = null },

@@ -226,6 +226,8 @@ private fun CloudDriveContent(
             songName = track.name,
             artistName = track.artist,
             coverUrl = track.coverUrl,
+            albumName = track.album,
+            albumId = track.albumId,
             isFavorite = track.id in likedIds,
             isDownloaded = AppModel.isDownloaded(track.id),
             onDismiss = { optionsTarget = null },

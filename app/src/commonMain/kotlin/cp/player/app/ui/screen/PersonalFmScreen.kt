@@ -214,6 +214,8 @@ class PersonalFmScreen : Screen {
                 songName = track.name,
                 artistName = track.artist,
                 coverUrl = track.coverUrl,
+                albumName = track.album,
+                albumId = track.albumId,
                 isFavorite = actions.isFavorite,
                 isDownloaded = actions.isDownloaded,
                 onDismiss = { optionsTrack = null },

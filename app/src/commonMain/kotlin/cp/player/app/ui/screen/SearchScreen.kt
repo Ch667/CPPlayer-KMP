@@ -579,6 +579,8 @@ class SearchScreen(private val initialQuery: String = "") : Screen {
                 songName = track.name,
                 artistName = track.artist,
                 coverUrl = track.coverUrl,
+                albumName = track.album,
+                albumId = track.albumId,
                 isFavorite = track.id in likedIds,
                 isDownloaded = AppModel.isDownloaded(track.id),
                 onDismiss = { selectedTrack = null },

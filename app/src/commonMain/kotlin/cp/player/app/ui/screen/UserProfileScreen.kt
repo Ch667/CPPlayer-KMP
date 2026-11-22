@@ -454,6 +454,7 @@ private fun UserProfileContent(
             songName = track.name,
             artistName = track.artist,
             coverUrl = track.coverUrl,
+            albumName = track.album,
             isFavorite = track.id in likedIds,
             isDownloaded = AppModel.isDownloaded(track.id),
             onDismiss = { songOptionsTarget = null },

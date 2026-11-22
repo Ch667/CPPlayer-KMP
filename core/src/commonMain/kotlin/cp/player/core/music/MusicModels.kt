@@ -95,6 +95,7 @@ data class TrackSummary(
     val artists: List<ArtistSummary> = emptyList(),
     val mvId: Long? = null,
     val originalMediaId: String? = null,
+    val albumId: Long? = null,
 ) : cp.player.core.util.JavaSerializable
 
 /**

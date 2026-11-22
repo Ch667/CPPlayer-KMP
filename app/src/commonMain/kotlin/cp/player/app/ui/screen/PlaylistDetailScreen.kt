@@ -665,6 +665,8 @@ fun PlaylistDetailContent(
             },
             deleteLabel = if (isCloudDrive) s.account.cloudDelete else null,
             coverUrl = track.coverUrl,
+            albumName = track.album,
+            albumId = track.albumId,
         )
     }
 

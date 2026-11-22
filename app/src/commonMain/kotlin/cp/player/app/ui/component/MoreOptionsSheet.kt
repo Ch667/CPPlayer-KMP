@@ -18,7 +18,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import cp.player.app.ui.navigation.LocalAppNavigator
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -123,6 +130,8 @@ fun SongOptionsSheet(
     onShare: () -> Unit = {},
     onPlayMv: (() -> Unit)? = null,
     coverUrl: String? = null,
+    albumName: String? = null,
+    albumId: Long? = null,
     onAddToLocalPlaylist: (() -> Unit)? = null,
     onOpenInFileManager: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
@@ -148,6 +157,8 @@ fun SongOptionsSheet(
             onShare = onShare,
             onPlayMv = onPlayMv,
             coverUrl = coverUrl,
+            albumName = albumName,
+            albumId = albumId,
             onAddToLocalPlaylist = onAddToLocalPlaylist,
             onOpenInFileManager = onOpenInFileManager,
             onRemoveFromPlaylist = onRemoveFromPlaylist,
@@ -176,6 +187,8 @@ internal fun SongOptionsSheetContent(
     onShare: () -> Unit = {},
     onPlayMv: (() -> Unit)? = null,
     coverUrl: String? = null,
+    albumName: String? = null,
+    albumId: Long? = null,
     onAddToLocalPlaylist: (() -> Unit)? = null,
     onOpenInFileManager: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
@@ -185,6 +198,57 @@ internal fun SongOptionsSheetContent(
     onDislike: (() -> Unit)? = null,
 ) {
     val s = cpStrings()
+    val appNavigator = LocalAppNavigator.current
+    val appScope = cp.player.app.AppModel.modelScope
+    var lookingUpAlbum by remember { mutableStateOf(false) }
+    val openAlbum: () -> Unit = {
+        val targetId = albumId
+        if (targetId != null) {
+            onDismiss()
+            appNavigator.push(
+                cp.player.app.presentation.navigation.AppRoute.AlbumDetail(
+                    targetId,
+                    cp.player.core.music.AlbumSummary(
+                        id = targetId,
+                        name = albumName.orEmpty(),
+                        coverUrl = coverUrl,
+                        artistName = artistName,
+                        trackCount = 0,
+                    ),
+                )
+            )
+        } else if (!albumName.isNullOrBlank() && !lookingUpAlbum) {
+            val query = albumName.trim()
+            lookingUpAlbum = true
+            appScope.launch {
+                try {
+                    var result = cp.player.app.AppModel.musicRepository.search(query, cp.player.app.repository.SearchType.ALBUM)
+                    if (result is cp.player.core.BackendResult.Error) {
+                        kotlinx.coroutines.delay(350L)
+                        result = cp.player.app.AppModel.musicRepository.search(query, cp.player.app.repository.SearchType.ALBUM)
+                    }
+                    val albums = (result as? cp.player.core.BackendResult.Success)?.data?.albums.orEmpty()
+                    val best = albums.firstOrNull { it.name.equals(query, ignoreCase = true) }
+                        ?: albums.firstOrNull()
+                    if (best != null) {
+                        onDismiss()
+                        appNavigator.push(cp.player.app.presentation.navigation.AppRoute.AlbumDetail(best.id, best))
+                    } else if (result is cp.player.core.BackendResult.Error) {
+                        cp.player.app.ui.util.UiEvents.notify("专辑查询失败，请重试")
+                    } else {
+                        onDismiss()
+                        appNavigator.push(cp.player.app.presentation.navigation.AppRoute.Search(query))
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    cp.player.app.ui.util.UiEvents.notify("专辑搜索失败，请重试")
+                } finally {
+                    lookingUpAlbum = false
+                }
+            }
+        }
+    }
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
             Modifier.widthIn(max = 640.dp).fillMaxWidth()
@@ -273,6 +337,16 @@ internal fun SongOptionsSheetContent(
                             onClick = { onShowInfo(); onDismiss() },
                         )
                     )
+                    if (albumId != null || !albumName.isNullOrBlank()) {
+                        add(
+                            SheetAction(
+                                label = if (lookingUpAlbum) "正在查找专辑…" else "查看专辑",
+                                icon = Icons.Filled.Album,
+                                enabled = !lookingUpAlbum,
+                                onClick = openAlbum,
+                            )
+                        )
+                    }
                     if (onPlayMv != null) {
                         add(
                             SheetAction(

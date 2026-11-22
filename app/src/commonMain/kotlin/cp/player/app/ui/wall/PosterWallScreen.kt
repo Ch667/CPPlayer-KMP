@@ -685,6 +685,7 @@ fun PosterWallScreen(
             SongOptionsSheet(
                 songName = song.title,
                 artistName = song.artist,
+                albumName = song.album,
                 coverUrl = song.coverUrl,
                 isFavorite = song.id in likedIds,
                 isDownloaded = AppModel.isDownloaded(song.id),
