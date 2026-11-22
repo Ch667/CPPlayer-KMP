@@ -12,9 +12,15 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import cp.player.app.AppModel
 import cp.player.app.i18n.cpStrings
 import cp.player.app.presentation.navigation.AppNavigator
 import cp.player.app.presentation.navigation.AppRoute
@@ -80,6 +86,18 @@ fun ArtistPickerSheet(
             )
             Spacer(Modifier.height(4.dp))
             selectable.forEachIndexed { index, artist ->
+                var resolvedAvatar by remember(artist.resourceId, artist.avatarUrl) {
+                    mutableStateOf(artist.avatarUrl)
+                }
+                LaunchedEffect(artist.resourceId) {
+                    if (resolvedAvatar.isNullOrBlank()) {
+                        val profile = runCatching { AppModel.musicRepository.getArtistProfile(artist.resourceId) }.getOrNull()
+                        val avatar = profile?.avatarUrl
+                        if (!avatar.isNullOrBlank()) {
+                            resolvedAvatar = avatar
+                        }
+                    }
+                }
                 LegacyListItem(
                     index = index,
                     total = selectable.size,
@@ -88,7 +106,7 @@ fun ArtistPickerSheet(
                         onSelect(artist)
                     },
                     containerColor = cpSheetInnerSurface(),
-                    leadingContent = { ArtistAvatar(artist.avatarUrl, 44.dp) },
+                    leadingContent = { ArtistAvatar(resolvedAvatar, 44.dp) },
                     headlineContent = {
                         CpText(
                             artist.name,

@@ -21,7 +21,7 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew :core:desktopTest --tests 'cp.player.core.provider.NetEaseCommentOverflowTest' --no-daemon
-          ./gradlew :app:desktopTest --tests 'cp.player.app.ui.screen.ShowSongAlbumSettingTest' --tests 'cp.player.app.ui.screen.AlbumPlaybackWiringTest' --tests 'cp.player.app.presentation.library.LibraryPresenterAlbumsTest' --tests 'cp.player.app.ui.model.CommentSortVisibilityTest' --tests 'cp.player.app.ui.component.ArtistPickerResolutionTest' --no-daemon
+          ./gradlew :app:desktopTest --tests 'cp.player.app.ui.screen.ShowSongAlbumSettingTest' --tests 'cp.player.app.ui.screen.AlbumPlaybackWiringTest' --tests 'cp.player.app.presentation.library.LibraryPresenterAlbumsTest' --tests 'cp.player.app.ui.model.CommentSortVisibilityTest' --tests 'cp.player.app.ui.component.ArtistPickerResolutionTest' --tests 'cp.player.app.presentation.search.SearchPresenterTest' --no-daemon
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -58,7 +58,7 @@ jobs:
           KEY_PASSWORD: cpplayer2026
         run: |
           chmod +x gradlew
-          ./gradlew :app-android:assembleRelease -Papp.versionName=1.9.6 -Papp.versionCode=1009007 \
+          ./gradlew :app-android:assembleRelease -Papp.versionName=1.9.6 -Papp.versionCode=1009008 \
             -x lintVitalAnalyzeRelease -x lintVitalRelease -x reportReleaseComposeMappingErrors --no-daemon
       - uses: actions/upload-artifact@v4
         with:

@@ -336,6 +336,17 @@ class MusicRepository(
         }
     }
 
+    private suspend fun getArtistTopSongsWithRetry(id: String): MusicResult<List<TrackSummary>> {
+        var result = getArtistTopSongs(id)
+        for (waitMs in longArrayOf(350L, 900L)) {
+            val ok = result is BackendResult.Success && result.data.isNotEmpty()
+            if (ok || result is BackendResult.Unsupported) return result
+            kotlinx.coroutines.delay(waitMs)
+            result = getArtistTopSongs(id)
+        }
+        return result
+    }
+
     suspend fun getArtistAlbums(id: String, limit: Int = 50): MusicResult<List<AlbumSummary>> {
         val source = unifiedSource ?: return BackendResult.Unsupported("Unified music source is not configured")
         val canonicalId = cp.player.core.music.CPMediaId.toCanonicalMediaId(
@@ -720,6 +731,7 @@ class MusicRepository(
         return cacheRead(
             MusicReadCaches.profiles,
             resourceKey,
+            shouldCache = { !it.isArtist || it.songs.isNotEmpty() || it.albums.isNotEmpty() },
             onRefresh = onRefresh,
         ) {
             val artist = getArtistProfile(uid)
@@ -737,7 +749,7 @@ class MusicRepository(
                 )
                 publishPartial(baseBundle)
                 val (songsResult, albumsResult) = coroutineScope {
-                    val songs = async { getArtistTopSongs(uid) }
+                    val songs = async { getArtistTopSongsWithRetry(uid) }
                     val albums = async { getArtistAlbums(uid) }
                     songs.await() to albums.await()
                 }

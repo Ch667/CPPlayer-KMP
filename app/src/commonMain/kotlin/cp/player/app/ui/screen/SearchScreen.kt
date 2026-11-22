@@ -327,7 +327,7 @@ class SearchScreen(private val initialQuery: String = "") : Screen {
                             message = state.error,
                             error = true,
                             actionLabel = "重试",
-                            onAction = { model.search() },
+                            onAction = { model.search(type = state.searchType) },
                         )
                     }
                     state.result == null -> {

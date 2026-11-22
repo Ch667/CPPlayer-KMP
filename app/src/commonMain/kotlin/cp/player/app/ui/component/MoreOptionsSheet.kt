@@ -223,15 +223,18 @@ internal fun SongOptionsSheetContent(
     } else null
 
     // ── 查看专辑 ──────────────────────────────────────────────
-    // 有 albumId 就直跳专辑页；只有专辑名时走一次专辑搜索（同名优先）——
-    // 本地文件、老缓存没有 id，靠名字也能用上这个入口。
-    val albumNavigator = cafe.adriel.voyager.navigator.LocalNavigator.current
-    val albumScope = androidx.compose.runtime.rememberCoroutineScope()
+    // 有 albumId 就直跳专辑页；只有专辑名时先关弹层并跳去搜索/详情：
+    // ⚠️ 不要用 rememberCoroutineScope() 在弹窗里等网络搜完再 push——弹窗关了 scope 就被取消、
+    //    不关又让用户干等 2-3 秒，并且点完如果网络抖动还会没反应。改为用 AppModel.modelScope
+    //    或即时反馈；或者先立即尝试缓存/带 retry 搜索，期间按钮显示「正在查找专辑…」。
+    val appScope = cp.player.app.AppModel.modelScope
+    var lookingUpAlbum by remember { mutableStateOf(false) }
     val openAlbum: () -> Unit = {
         val targetId = albumId
         if (targetId != null) {
-            albumNavigator?.push(
-                cp.player.app.ui.screen.AlbumDetailScreen(
+            onDismiss()
+            appNavigator.push(
+                cp.player.app.presentation.navigation.AppRoute.AlbumDetail(
                     targetId,
                     cp.player.core.music.AlbumSummary(
                         id = targetId,
@@ -242,27 +245,35 @@ internal fun SongOptionsSheetContent(
                     ),
                 )
             )
-            onDismiss()
-        } else if (!albumName.isNullOrBlank()) {
-            val query = albumName
-            albumScope.launch {
+        } else if (!albumName.isNullOrBlank() && !lookingUpAlbum) {
+            val query = albumName.trim()
+            lookingUpAlbum = true
+            appScope.launch {
                 try {
-                    val result = cp.player.app.AppModel.musicRepository.search(query, cp.player.app.repository.SearchType.ALBUM)
+                    var result = cp.player.app.AppModel.musicRepository.search(query, cp.player.app.repository.SearchType.ALBUM)
+                    if (result is cp.player.core.BackendResult.Error) {
+                        kotlinx.coroutines.delay(350L)
+                        result = cp.player.app.AppModel.musicRepository.search(query, cp.player.app.repository.SearchType.ALBUM)
+                    }
                     val albums = (result as? cp.player.core.BackendResult.Success)?.data?.albums.orEmpty()
                     val best = albums.firstOrNull { it.name.equals(query, ignoreCase = true) }
                         ?: albums.firstOrNull()
-                    if (best == null) {
-                        cp.player.app.ui.util.UiEvents.notify("没有找到这张专辑")
-                    } else if (albumNavigator == null) {
-                        cp.player.app.ui.util.UiEvents.notify("当前页面无法打开专辑，请返回歌曲列表后重试")
-                    } else {
-                        albumNavigator.push(cp.player.app.ui.screen.AlbumDetailScreen(best.id, best))
+                    if (best != null) {
                         onDismiss()
+                        appNavigator.push(cp.player.app.presentation.navigation.AppRoute.AlbumDetail(best.id, best))
+                    } else if (result is cp.player.core.BackendResult.Error) {
+                        cp.player.app.ui.util.UiEvents.notify("专辑查询失败，请重试")
+                    } else {
+                        // 精准搜专辑未命中时兜底跳转到搜索页，避免点击毫无反馈
+                        onDismiss()
+                        appNavigator.push(cp.player.app.presentation.navigation.AppRoute.Search(query))
                     }
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
                     cp.player.app.ui.util.UiEvents.notify("专辑搜索失败，请重试")
+                } finally {
+                    lookingUpAlbum = false
                 }
             }
         }
@@ -361,8 +372,9 @@ internal fun SongOptionsSheetContent(
                     if (albumId != null || !albumName.isNullOrBlank()) {
                         add(
                             SheetAction(
-                                label = "查看专辑",
+                                label = if (lookingUpAlbum) "正在查找专辑…" else "查看专辑",
                                 icon = Icons.Filled.Album,
+                                enabled = !lookingUpAlbum,
                                 onClick = openAlbum,
                             )
                         )
