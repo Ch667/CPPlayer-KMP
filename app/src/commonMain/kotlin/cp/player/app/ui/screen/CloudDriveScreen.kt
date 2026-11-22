@@ -166,7 +166,7 @@ private fun CloudDriveContent(
                             scope.launch {
                                 val target = track.id !in likedIds
                                 AppModel.playback.toggleFavoriteFor(
-                                    "${AppModel.activeProviderId()}://song/${track.id}"
+                                    AppModel.toMediaId(track.id)
                                 )
                                 UiEvents.notify(if (target) "已收藏" else "已取消收藏")
                             }
@@ -233,7 +233,7 @@ private fun CloudDriveContent(
             onToggleFavorite = {
                 scope.launch {
                     val target = track.id !in likedIds
-                    AppModel.playback.toggleFavoriteFor("${AppModel.activeProviderId()}://song/${track.id}")
+                    AppModel.playback.toggleFavoriteFor(AppModel.toMediaId(track.id))
                     UiEvents.notify(if (target) "已收藏" else "已取消收藏")
                 }
             },

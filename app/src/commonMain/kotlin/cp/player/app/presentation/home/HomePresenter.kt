@@ -345,7 +345,7 @@ class HomePresenter(
     override fun playPlaylist(playlist: PlaylistSummary, strings: CpStrings) = withPlaylistTracks(playlist, strings) { tracks ->
         val provider = AppModel.activeProviderId()
         AppModel.playback.playQueue(
-            tracks.map { "$provider://song/${it.id}" },
+            tracks.map { cp.player.core.music.CPMediaId.toCanonicalMediaId(it.id, provider) },
             startIndex = 0,
             sourceId = playlist.resourceId,
         )
@@ -354,7 +354,7 @@ class HomePresenter(
     /** 把整个歌单追加到播放队列尾部（不动当前播放）。 */
     override fun queuePlaylist(playlist: PlaylistSummary, strings: CpStrings) = withPlaylistTracks(playlist, strings) { tracks ->
         val provider = AppModel.activeProviderId()
-        tracks.forEach { AppModel.playback.addToQueue("$provider://song/${it.id}") }
+        tracks.forEach { AppModel.playback.addToQueue(cp.player.core.music.CPMediaId.toCanonicalMediaId(it.id, provider)) }
         notify(strings.library.playlistQueued(playlist.name))
     }
 

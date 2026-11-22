@@ -12,6 +12,7 @@ import cp.player.core.media.MediaType
 import cp.player.core.media.LocalMediaItem
 import cp.player.core.music.AlbumSummary
 import cp.player.core.music.ArtistSummary
+import cp.player.core.music.MusicResult
 import cp.player.core.music.SearchResult
 import cp.player.core.music.TrackSummary
 import cp.player.core.provider.BackendProvider
@@ -19,6 +20,7 @@ import cp.player.core.util.SettingsStorage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -215,14 +217,19 @@ class SearchPresenter(
                 return@launch
             }
             val response = try {
-                repositoryProvider().search(finalKeyword, type, onRefresh = { refreshed ->
-                    val updated = (refreshed as? BackendResult.Success)?.data
-                    if (updated != null && generation == searchGeneration &&
-                        _state.value.query == finalKeyword && _state.value.searchType == type
-                    ) {
-                        _state.value = _state.value.copy(result = updated)
-                    }
-                })
+                searchWithTransientRetry(
+                    keyword = finalKeyword,
+                    type = type,
+                    isCurrent = { generation == searchGeneration },
+                    onRefresh = { refreshed ->
+                        val updated = (refreshed as? BackendResult.Success)?.data
+                        if (updated != null && generation == searchGeneration &&
+                            _state.value.query == finalKeyword && _state.value.searchType == type
+                        ) {
+                            _state.value = _state.value.copy(result = updated)
+                        }
+                    },
+                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -231,9 +238,50 @@ class SearchPresenter(
             if (generation != searchGeneration) return@launch
             _state.value = when (response) {
                 is BackendResult.Success -> _state.value.copy(result = response.data, loading = false)
-                is BackendResult.Error -> _state.value.copy(error = response.message, loading = false)
+                is BackendResult.Error -> _state.value.copy(error = friendlySearchError(response.message), loading = false)
                 is BackendResult.Unsupported -> _state.value.copy(error = response.message, loading = false)
             }
         }
     }
+
+    private suspend fun searchWithTransientRetry(
+        keyword: String,
+        type: Int,
+        isCurrent: () -> Boolean,
+        onRefresh: (MusicResult<SearchResult>) -> Unit,
+    ): MusicResult<SearchResult> {
+        val backoffs = longArrayOf(350L, 900L)
+        var response = repositoryProvider().search(keyword, type, onRefresh = onRefresh)
+        for (waitMs in backoffs) {
+            if (!isCurrent() || !isTransientSearchError(response)) return response
+            delay(waitMs)
+            if (!isCurrent()) return response
+            response = repositoryProvider().search(keyword, type, onRefresh = onRefresh)
+        }
+        return response
+    }
+
+    private fun isTransientSearchError(result: MusicResult<SearchResult>): Boolean {
+        val rawMessage = (result as? BackendResult.Error)?.message
+        val msg = rawMessage?.lowercase() ?: return false
+        return "network" in msg || "timeout" in msg || "rate_limit" in msg || "rate limit" in msg ||
+            "connect" in msg || "socket" in msg || "temporar" in msg || "invalidresponse" in msg ||
+            "invalid response" in msg || "缓存已失效" in rawMessage
+    }
+
+    private fun friendlySearchError(raw: String): String {
+        val lower = raw.lowercase()
+        return when {
+            "network" in lower || "connect" in lower || "socket" in lower ->
+                "网络波动，自动重试后仍未成功，请点击重试"
+            "timeout" in lower ->
+                "搜索响应超时，请稍后重试"
+            "rate_limit" in lower || "rate limit" in lower ->
+                "请求过于频繁，请稍后重试"
+            else -> raw
+        }
+    }
+
+    internal fun shouldRetrySearchError(result: MusicResult<SearchResult>): Boolean =
+        isTransientSearchError(result)
 }
