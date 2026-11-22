@@ -185,9 +185,9 @@ internal fun validateExtendedResult(values: Map<String, Any?>, request: Map<Stri
     if (values.containsKey("url")) validateMediaResource(MediaResource.fromValues(values))
     if (values.containsKey("action")) validateListenCommand(ListenCommand.fromValues(values))
     (values["comments"] as? List<*>)?.let {
-        require(it.size <= (request["limit"] as? Int ?: MAX_ITEMS))
-        require((values["totalCount"] as Long) >= it.size)
-        require((values["sortType"] as Int) in 1..3)
+        if (it.size > (request["limit"] as? Int ?: MAX_ITEMS)) throw CommentContractViolation.pageSize()
+        if ((values["totalCount"] as Long) < it.size) throw CommentContractViolation.total()
+        if ((values["sortType"] as Int) !in 1..3) throw CommentContractViolation.sort()
     }
     if ("chunkSize" in values) {
         val chunkSize = values["chunkSize"] as Int
