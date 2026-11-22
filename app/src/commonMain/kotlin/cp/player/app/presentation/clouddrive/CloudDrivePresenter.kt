@@ -146,24 +146,24 @@ class CloudDrivePresenter(
         if (songs.isEmpty()) return
         songs.getOrNull(index)?.let(playCoverFlight)
         val provider = AppModel.activeProviderId()
-        val clicked = songs.getOrNull(index)?.let { "$provider://song/${it.id}" } ?: return
+        val clicked = songs.getOrNull(index)?.let { cp.player.core.music.CPMediaId.toCanonicalMediaId(it.id, provider) } ?: return
         // 云盘歌曲的 simpleSong.id 是标准歌曲 id，song/url/v1 实测可用，
         // 直接按普通歌曲入列（带上列表上下文，跟随播放列表的功能才有落点）。
         AppModel.playTrackClicked(clicked) {
-            AppModel.playback.playQueue(songs.map { "$provider://song/${it.id}" }, startIndex = index)
+            AppModel.playback.playQueue(songs.map { cp.player.core.music.CPMediaId.toCanonicalMediaId(it.id, provider) }, startIndex = index)
         }
     }
 
     fun addToQueue(track: TrackSummary) {
         scope.launch {
-            AppModel.playback.addToQueue("${AppModel.activeProviderId()}://song/${track.id}")
+            AppModel.playback.addToQueue(AppModel.toMediaId(track.id))
             notify("已加入播放队列")
         }
     }
 
     fun playNext(track: TrackSummary) {
         scope.launch {
-            AppModel.playback.addNextToQueue("${AppModel.activeProviderId()}://song/${track.id}")
+            AppModel.playback.addNextToQueue(AppModel.toMediaId(track.id))
             notify("将在下一首播放")
         }
     }

@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -62,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import cp.player.app.i18n.cpStrings
 import cp.player.app.ui.util.resized
+import kotlinx.coroutines.launch
 
 /** Playlist sort order shared by the playlist options sheet and screen models. */
 typealias PlaylistSortType = cp.player.app.presentation.playlistdetail.PlaylistSortType
@@ -123,6 +125,10 @@ fun SongOptionsSheet(
     onShare: () -> Unit = {},
     onPlayMv: (() -> Unit)? = null,
     coverUrl: String? = null,
+    /** 所属专辑名。有它（或 [albumId]）时菜单里出现「查看专辑」。 */
+    albumName: String? = null,
+    /** 所属专辑 id：有就直接进专辑页，不用再搜一次。 */
+    albumId: Long? = null,
     onAddToLocalPlaylist: (() -> Unit)? = null,
     onOpenInFileManager: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
@@ -148,6 +154,8 @@ fun SongOptionsSheet(
             onShare = onShare,
             onPlayMv = onPlayMv,
             coverUrl = coverUrl,
+            albumName = albumName,
+            albumId = albumId,
             onAddToLocalPlaylist = onAddToLocalPlaylist,
             onOpenInFileManager = onOpenInFileManager,
             onRemoveFromPlaylist = onRemoveFromPlaylist,
@@ -176,6 +184,10 @@ internal fun SongOptionsSheetContent(
     onShare: () -> Unit = {},
     onPlayMv: (() -> Unit)? = null,
     coverUrl: String? = null,
+    /** 所属专辑名。有它（或 [albumId]）时菜单里出现「查看专辑」。 */
+    albumName: String? = null,
+    /** 所属专辑 id：有就直接进专辑页，不用再搜一次。 */
+    albumId: Long? = null,
     onAddToLocalPlaylist: (() -> Unit)? = null,
     onOpenInFileManager: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
@@ -185,6 +197,52 @@ internal fun SongOptionsSheetContent(
     onDislike: (() -> Unit)? = null,
 ) {
     val s = cpStrings()
+    // ── 查看专辑 ──────────────────────────────────────────────
+    // 有 albumId 就直跳专辑页；只有专辑名时走一次专辑搜索（同名优先）——
+    // 本地文件、老缓存没有 id，靠名字也能用上这个入口。
+    val albumNavigator = cafe.adriel.voyager.navigator.LocalNavigator.current
+    val albumScope = androidx.compose.runtime.rememberCoroutineScope()
+    val openAlbum: () -> Unit = {
+        val targetId = albumId
+        if (targetId != null) {
+            albumNavigator?.push(
+                cp.player.app.ui.screen.AlbumDetailScreen(
+                    targetId,
+                    cp.player.core.music.AlbumSummary(
+                        id = targetId,
+                        name = albumName.orEmpty(),
+                        coverUrl = coverUrl,
+                        artistName = artistName,
+                        trackCount = 0,
+                    ),
+                )
+            )
+            onDismiss()
+        } else if (!albumName.isNullOrBlank()) {
+            val query = albumName
+            albumScope.launch {
+                try {
+                    val result = cp.player.app.AppModel.musicRepository.search(query, cp.player.app.repository.SearchType.ALBUM)
+                    val albums = (result as? cp.player.core.BackendResult.Success)?.data?.albums.orEmpty()
+                    val best = albums.firstOrNull { it.name.equals(query, ignoreCase = true) }
+                        ?: albums.firstOrNull()
+                    if (best == null) {
+                        cp.player.app.ui.util.UiEvents.notify("没有找到这张专辑")
+                    } else if (albumNavigator == null) {
+                        cp.player.app.ui.util.UiEvents.notify("当前页面无法打开专辑，请返回歌曲列表后重试")
+                    } else {
+                        albumNavigator.push(cp.player.app.ui.screen.AlbumDetailScreen(best.id, best))
+                        onDismiss()
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    cp.player.app.ui.util.UiEvents.notify("专辑搜索失败，请重试")
+                }
+            }
+        }
+    }
+
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
             Modifier.widthIn(max = 640.dp).fillMaxWidth()
@@ -273,6 +331,16 @@ internal fun SongOptionsSheetContent(
                             onClick = { onShowInfo(); onDismiss() },
                         )
                     )
+                    // 专辑入口：只有拿到专辑信息时才出现（纯本地文件没有专辑时不出现）。
+                    if (albumId != null || !albumName.isNullOrBlank()) {
+                        add(
+                            SheetAction(
+                                label = "查看专辑",
+                                icon = Icons.Filled.Album,
+                                onClick = openAlbum,
+                            )
+                        )
+                    }
                     if (onPlayMv != null) {
                         add(
                             SheetAction(

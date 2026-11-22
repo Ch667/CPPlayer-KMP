@@ -212,6 +212,8 @@ class PersonalFmScreen : Screen {
             val actions = songActions(track)
             SongOptionsSheet(
                 songName = track.name,
+                albumName = track.album,
+                albumId = track.albumId,
                 artistName = track.artist,
                 coverUrl = track.coverUrl,
                 isFavorite = actions.isFavorite,

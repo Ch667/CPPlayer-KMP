@@ -336,13 +336,13 @@ fun PlaylistDetailContent(
                 onToggleFavorite = { model.toggleLike(track, s) },
                 onAddToQueue = {
                     scope.launch {
-                        AppModel.playback.addToQueue("${AppModel.activeProviderId()}://song/${track.id}")
+                        AppModel.playback.addToQueue(AppModel.toMediaId(track.id))
                         UiEvents.notify(s.library.queuedToPlay)
                     }
                 },
                 onPlayNext = {
                     scope.launch {
-                        AppModel.playback.addNextToQueue("${AppModel.activeProviderId()}://song/${track.id}")
+                        AppModel.playback.addNextToQueue(AppModel.toMediaId(track.id))
                         UiEvents.notify(s.library.playNext)
                     }
                 },
@@ -623,6 +623,8 @@ fun PlaylistDetailContent(
     optionsTarget?.let { track ->
         SongOptionsSheet(
             songName = track.name,
+            albumName = track.album,
+            albumId = track.albumId,
             artistName = track.artist,
             isFavorite = model.isLiked(track.id),
             isDownloaded = AppModel.isDownloaded(track.id),
@@ -634,13 +636,13 @@ fun PlaylistDetailContent(
             onToggleFavorite = { model.toggleLike(track, s) },
             onAddToQueue = {
                 scope.launch {
-                    AppModel.playback.addToQueue("${AppModel.activeProviderId()}://song/${track.id}")
+                    AppModel.playback.addToQueue(AppModel.toMediaId(track.id))
                     UiEvents.notify(s.library.queuedToPlay)
                 }
             },
             onPlayNext = {
                 scope.launch {
-                    AppModel.playback.addNextToQueue("${AppModel.activeProviderId()}://song/${track.id}")
+                    AppModel.playback.addNextToQueue(AppModel.toMediaId(track.id))
                     UiEvents.notify(s.library.playNext)
                 }
             },

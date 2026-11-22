@@ -274,7 +274,16 @@ private fun HomeScreenContent(model: HomeScreenModel) {
         onBannerClick = { banner ->
             if (banner.targetType == BANNER_TARGET_SONG) {
                 playTracks(
-                    listOf(TrackSummary(banner.targetId, banner.title, "", null, banner.imageUrl, 0L)),
+                    listOf(
+                        TrackSummary(
+                            id = banner.targetId,
+                            name = banner.title,
+                            artist = "",
+                            album = null,
+                            coverUrl = banner.imageUrl,
+                            durationMs = 0L,
+                        )
+                    ),
                     0,
                 )
             } else {
@@ -436,6 +445,8 @@ private fun HomeScreenContent(model: HomeScreenModel) {
         val favId = runCatching { cp.player.core.music.CPMediaId.parse(track.id).resourceId }.getOrDefault(track.id)
         SongOptionsSheet(
             songName = track.name,
+            albumName = track.album,
+            albumId = track.albumId,
             artistName = track.artist,
             coverUrl = track.coverUrl,
             isFavorite = favId in likedIds,

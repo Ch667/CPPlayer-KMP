@@ -102,6 +102,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Density
@@ -123,6 +126,8 @@ import cp.player.app.ui.theme.cpNestedSurface
 import cp.player.app.ui.util.formatTimeMs
 import cp.player.app.ui.util.DesktopShell
 import kotlin.math.abs
+import kotlin.math.sin
+import kotlin.math.PI
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
@@ -269,6 +274,101 @@ private val CpWaveStaticSpeed = 0.dp
  * `LinearWavyProgressIndicator` 默认值同源。流动**只在播放中**开启（见 [CpWavyProgress]）。
  */
 private val CpWaveFlowSpeed = WavyProgressIndicatorDefaults.LinearDeterminateWavelength
+
+/**
+ * 细波形进度线 —— 迷你播放器用的「Android 16 波浪线」。
+ *
+ * 形态：主体是直线，只有靠近当前进度的末端一小段（[waveTail]）鼓起成波，末端圆点收尾。
+ *
+ * ⚠️ 画这条线有三个细节，少一个就会「有棱角 / 上下抖动」：
+ *  1. **采样步长 0.5px**。1.5px 时正弦被离散成一条折线，3dp 粗的描边会把每节折点画成棱；
+ *  2. **`join = StrokeJoin.Round`**。Path 描边默认是 miter 连接，折点处会被拉出尖角 ——
+ *     这是「棱角」最直接的来源（圆头 cap 只影响首尾，不管拐点）；
+ *  3. **包络两端归零**（`sin(π·t)`）。振幅在中段最大、到圆点前回到中线，
+ *     不会出现「波浪突然被一刀切断、末端硬拐回直线」的折角。
+ */
+@Composable
+fun CpWavyLine(
+    progress: Float,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary,
+    trackColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
+    strokeWidth: Dp = 3.dp,
+    amplitude: Dp = 2.dp,
+    wavelength: Dp = 12.dp,
+    /** 末端波浪段长度；0 = 画成纯直线。 */
+    waveTail: Dp = 26.dp,
+    waveFlowing: Boolean = false,
+) {
+    val safe = progress.coerceIn(0f, 1f)
+    val density = LocalDensity.current
+    val stroke = with(density) { strokeWidth.toPx() }
+    val amp = with(density) { amplitude.toPx() }
+    val wl = with(density) { wavelength.toPx().coerceAtLeast(1f) }
+    val tail = with(density) { waveTail.toPx() }
+
+    // 波纹相位：只在播放中前进；暂停时不动，零逐帧重绘
+    val phase = if (waveFlowing) {
+        rememberInfiniteTransition(label = "cpWavyLine").animateFloat(
+            initialValue = 0f,
+            targetValue = wl,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "cpWavyLinePhase",
+        ).value
+    } else 0f
+
+    Canvas(modifier.height(amplitude * 2 + strokeWidth)) {
+        val cy = size.height / 2f
+        val endX = size.width * safe
+
+        // 未完成段
+        drawLine(
+            color = trackColor,
+            start = Offset(0f, cy),
+            end = Offset(size.width, cy),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round,
+        )
+        if (endX <= 0.5f) return@Canvas
+
+        // 已完成段的直线主体（多画 1px 压住接缝）
+        val waveStart = (endX - tail).coerceAtLeast(0f)
+        if (waveStart > 0f) {
+            drawLine(
+                color = color,
+                start = Offset(0f, cy),
+                end = Offset(waveStart + 1f, cy),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
+        }
+
+        // 末端波浪：sin 包络（两端为 0）+ 细采样 + 圆角连接
+        val path = Path()
+        path.moveTo(waveStart, cy)
+        val span = tail.coerceAtLeast(1f)
+        var x = waveStart
+        while (x < endX) {
+            val t = ((x - waveStart) / span).coerceIn(0f, 1f)
+            val envelope = sin(PI.toFloat() * t)
+            val y = cy + sin(((x + phase) / wl) * 2f * PI.toFloat()) * amp * envelope
+            path.lineTo(x, y)
+            x += 0.5f
+        }
+        path.lineTo(endX, cy)
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round),
+        )
+
+        // 当前位置的圆点
+        drawCircle(color = color, radius = stroke * 0.95f, center = Offset(endX, cy))
+    }
+}
 
 /** 波形线性进度条（不确定值 / 缓冲中）。 */
 @Composable

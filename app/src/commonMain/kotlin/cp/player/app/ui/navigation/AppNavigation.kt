@@ -89,7 +89,7 @@ private object UnavailableAppNavigator : AppNavigator {
 fun AppRoute.toVoyagerScreen(): Screen = when (this) {
     is AppRoute.Search -> SearchScreen(initialQuery)
     is AppRoute.PlaylistDetail -> PlaylistDetailScreen(playlist)
-    is AppRoute.AlbumDetail -> AlbumDetailScreen(albumId, fallback)
+    is AppRoute.AlbumDetail -> AlbumDetailScreen(albumResourceId, fallback)
     is AppRoute.UserProfile -> UserProfileScreen(uid, displayName, resourceId)
     is AppRoute.VideoPlayer -> VideoPlayerScreen(mediaId, title)
     is AppRoute.Chat -> ChatScreen(peerUid, peerName)

@@ -92,6 +92,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -104,6 +105,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -389,13 +391,21 @@ fun androidx.compose.animation.SharedTransitionScope.PlayerScreenContent(
     val scope = rememberCoroutineScope()
 
     // 下拉关闭手势（仅播放器页启用）
+    //
+    // 旧实现「不灵敏」有两个来源，这里同时修掉：
+    //  1. 每个 onVerticalDrag 都 `scope.launch { offsetY.snapTo(...) }` —— 拖一个事件起一个协程，
+    //     手指的增量被协程调度吞掉一截，跟手感直接掉一档；现在拖动只写一个 float 状态，零协程。
+    //  2. 判定只有「拖过 maxDrag/2 = 200dp」一条，没有速度判定 —— 快速下甩一下因为没到 200dp
+    //     又弹回去，看起来就是「没反应」；现在位移过 96dp、**或者**下甩速度过 700dp/s 都算收起。
     var isOnPlayerPage by remember { mutableStateOf(true) }
-    val offsetY = remember { Animatable(0f) }
+    var pullOffset by remember { mutableFloatStateOf(0f) }
+    val dismissDragPx = with(LocalDensity.current) { 96.dp.toPx() }
     val maxDrag = with(LocalDensity.current) { 400.dp.toPx() }
+    val pullVelocity = remember { VelocityTracker() }
 
     LaunchedEffect(pagerState.settledPage) {
         isOnPlayerPage = pagerState.settledPage == 1
-        if (pagerState.settledPage != 1 && offsetY.value > 0f) offsetY.snapTo(0f)
+        if (pagerState.settledPage != 1 && pullOffset > 0f) pullOffset = 0f
     }
 
     // 背景：流体网格渐变（仿 Apple Music），用户关掉时回退到竖向渐变。
@@ -638,31 +648,53 @@ fun androidx.compose.animation.SharedTransitionScope.PlayerScreenContent(
                 .then(
                     if (isOnPlayerPage) Modifier.pointerInput(Unit) {
                         detectVerticalDragGestures(
+                            onDragStart = { pullVelocity.resetTracking() },
                             onDragEnd = {
-                                if (offsetY.value > 0) {
-                                    val target = if (offsetY.value > maxDrag / 2) maxDrag * 2 else 0f
-                                    if (target > 0f) onBack()
+                                val speed = runCatching { pullVelocity.calculateVelocity().y }.getOrDefault(0f)
+                                if (pullOffset > dismissDragPx || speed > 700f) {
+                                    // 直接归零，把视觉交还给路由退场动画，避免「先弹回再消失」
+                                    pullOffset = 0f
+                                    onBack()
+                                } else {
                                     scope.launch {
-                                        offsetY.animateTo(target, tween(250))
+                                        androidx.compose.animation.core.animate(
+                                            initialValue = pullOffset,
+                                            targetValue = 0f,
+                                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                        ) { value, _ -> pullOffset = value }
                                     }
                                 }
                             },
                             onDragCancel = {
-                                if (offsetY.value > 0) {
-                                    scope.launch { offsetY.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow)) }
+                                scope.launch {
+                                    androidx.compose.animation.core.animate(
+                                        initialValue = pullOffset,
+                                        targetValue = 0f,
+                                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                    ) { value, _ -> pullOffset = value }
                                 }
                             },
                             onVerticalDrag = { change, dragAmount ->
-                                if (dragAmount > 0 || offsetY.value > 0) {
-                                    val newOffset = (offsetY.value + dragAmount).coerceIn(0f, maxDrag * 2)
-                                    scope.launch { offsetY.snapTo(newOffset) }
+                                pullVelocity.addPosition(change.uptimeMillis, change.position)
+                                if (dragAmount > 0f || pullOffset > 0f) {
+                                    pullOffset = (pullOffset + dragAmount).coerceIn(0f, maxDrag)
                                     change.consume()
                                 }
                             },
                         )
                     } else Modifier
                 )
-                .offset { IntOffset(0, offsetY.value.roundToInt()) },
+                // ⚠️ 这里**不能**用 `Modifier.offset` 位移整页：1.8.1 起播放页的标题/艺人与
+                // MiniPlayer 之间接了 sharedBounds，封面飞行器也搬到了整窗最顶层 —— 位移只作用于
+                // 「内容层」，共享元素按 root 坐标定位，结果是标题/艺人留在原地、压到封面上（下拉错位）。
+                // 改成纯图层的淡出：拖动时整页轻微变暗，松手按位移/速度决定是否收起。
+                // 拖动时整页跟着手指下沉 —— 用 graphicsLayer 的 translationY（绘制阶段变换）
+                // 而不是 `Modifier.offset`（布局阶段位移）：1.8.1 的封面/标题走 sharedBounds，
+                // 布局位移会让共享元素各自为政（标题留在原地压到封面上）；图层位移是整层一起走。
+                .graphicsLayer {
+                    translationY = pullOffset
+                    alpha = 1f - (pullOffset / dismissDragPx).coerceIn(0f, 0.35f)
+                },
             color = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
@@ -1329,6 +1361,8 @@ private fun ProgressRow(
         // 旧版同款**直线**进度条 —— 1:1 移植自 reference/cp-player-legacy 的 ProgressSection
         // （移动端不用波形；波形留给桌面播放页的 CpSeekBar）。视觉就是 M3 Slider 的
         // 默认 Expressive 观感。拖动期间由 CpPlainSeekBar 自己接管视觉，松手才回调 onSeek。
+        // 大播放器维持原来的直线 Slider：波形只给迷你播放器那种细线用，
+        // 这里整条泛波会跟封面、歌词抢视觉。
         cp.player.app.ui.component.CpPlainSeekBar(
             positionMs = positionMs,
             durationMs = duration,

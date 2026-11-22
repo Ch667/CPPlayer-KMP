@@ -492,6 +492,8 @@ fun RecentPlaysOptionsHost(
 
     SongOptionsSheet(
         songName = track.name,
+        albumName = track.album,
+        albumId = track.albumId,
         artistName = track.artist,
         coverUrl = track.coverUrl,
         isFavorite = isFav,

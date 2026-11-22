@@ -1,0 +1,68 @@
+name: Build mod APK
+
+on:
+  push:
+    branches: [mod-build]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Mod regression tests
+        run: |
+          chmod +x gradlew
+          ./gradlew :core:desktopTest --tests 'cp.player.core.provider.NetEaseCommentOverflowTest' --no-daemon
+          ./gradlew :app:desktopTest --tests 'cp.player.app.ui.screen.ShowSongAlbumSettingTest' --tests 'cp.player.app.ui.screen.AlbumPlaybackWiringTest' --tests 'cp.player.app.presentation.library.LibraryPresenterAlbumsTest' --tests 'cp.player.app.ui.model.CommentSortVisibilityTest' --no-daemon
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mod-regression-reports
+          path: |
+            core/build/reports/tests/
+            app/build/reports/tests/
+            core/build/test-results/
+            app/build/test-results/
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Android SDK packages
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SM" ] || SM="$(command -v sdkmanager)"
+          yes | "$SM" --licenses > /dev/null 2>&1 || true
+          "$SM" "platform-tools" "platforms;android-37.0" "build-tools;37.0.0"
+      - name: Decode mod keystore
+        run: base64 -d signing/cp-mod.b64 > "$RUNNER_TEMP/cp-mod.jks"
+      - name: Build release APK
+        env:
+          CP_APPLICATION_ID: cp.player.mod
+          KEYSTORE_FILE: ${{ runner.temp }}/cp-mod.jks
+          KEYSTORE_PASSWORD: cpplayer2026
+          KEY_ALIAS: cpmod
+          KEY_PASSWORD: cpplayer2026
+        run: |
+          chmod +x gradlew
+          ./gradlew :app-android:assembleRelease -Papp.versionName=1.9.6 -Papp.versionCode=1009006 \
+            -x lintVitalAnalyzeRelease -x lintVitalRelease -x reportReleaseComposeMappingErrors --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CPPlayer-1.9.6-mod
+          path: |
+            app-android/build/outputs/apk/release/*.apk
+            app-android/build/outputs/mapping/release/mapping.txt

@@ -581,7 +581,7 @@ private fun PlaylistTrackRow(
 ) {
     val scope = rememberCoroutineScope()
     val track = hit.track
-    val mediaIds = allTracks.map { "${AppModel.activeProviderId()}://song/${it.id}" }
+    val mediaIds = allTracks.map { AppModel.toMediaId(it.id) }
     SongItem(
         track = track,
         index = index,

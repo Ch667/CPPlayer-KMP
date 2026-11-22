@@ -66,14 +66,15 @@ import kotlinx.coroutines.launch
  * 专辑详情页面：展示专辑元数据、曲目列表与播放控制。
  */
 class AlbumDetailScreen(
-    private val albumId: Long,
+    private val albumResourceId: String,
     private val fallback: AlbumSummary? = null,
 ) : Screen {
+    constructor(albumId: Long, fallback: AlbumSummary? = null) : this(albumId.toString(), fallback)
     @Composable
     override fun Content() {
         val navigator = LocalAppNavigator.current
         AlbumDetailContent(
-            albumId = fallback?.resourceId ?: albumId.toString(),
+            albumId = fallback?.resourceId ?: albumResourceId,
             fallback = fallback,
             // ⚠️ `rememberScreenModel` 是**定义在 `Screen` 上的扩展函数**
             // （`javap` 核实：`rememberScreenModel(Screen, String, Function0, ...)`），
@@ -156,7 +157,7 @@ private fun AlbumDetailContent(
             (track.album?.contains(q, ignoreCase = true) == true)
         }
     }
-    val mediaIds = filteredTracks.map { "$provider://song/${it.id}" }
+    val mediaIds = filteredTracks.map { AppModel.toMediaId(it.id, provider) }
 
     val playAt: (Int) -> Unit = { index ->
         filteredTracks.getOrNull(index)?.let { CoverFlight.play(it.id, it.coverUrl) }
@@ -312,16 +313,16 @@ private fun AlbumDetailContent(
                             onToggleFavorite = {
                                 val target = track.id !in likedIds
                                 scope.launch {
-                                    AppModel.playback.toggleFavoriteFor("$provider://song/${track.id}")
+                                    AppModel.playback.toggleFavoriteFor(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider))
                                     UiEvents.notify(if (target) s.album.liked else s.album.unliked)
                                 }
                             },
                             onAddToQueue = {
-                                scope.launch { AppModel.playback.addToQueue("$provider://song/${track.id}") }
+                                scope.launch { AppModel.playback.addToQueue(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider)) }
                                 UiEvents.notify(s.library.queuedToPlay)
                             },
                             onPlayNext = {
-                                scope.launch { AppModel.playback.addNextToQueue("$provider://song/${track.id}") }
+                                scope.launch { AppModel.playback.addNextToQueue(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider)) }
                                 UiEvents.notify(s.library.playNext)
                             },
                             isDownloaded = AppModel.isDownloaded(track.id),
@@ -428,22 +429,22 @@ private fun AlbumDetailContent(
             isDownloaded = AppModel.isDownloaded(track.id),
             onDismiss = { optionsTarget = null },
             onPlay = {
-                playAt(allTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
+                playAt(filteredTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0))
                 optionsTarget = null
             },
             onToggleFavorite = {
                 val target = track.id !in likedIds
                 scope.launch {
-                    AppModel.playback.toggleFavoriteFor("$provider://song/${track.id}")
+                    AppModel.playback.toggleFavoriteFor(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider))
                     UiEvents.notify(if (target) s.album.liked else s.album.unliked)
                 }
             },
             onAddToQueue = {
-                scope.launch { AppModel.playback.addToQueue("$provider://song/${track.id}") }
+                scope.launch { AppModel.playback.addToQueue(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider)) }
                 UiEvents.notify(s.library.queuedToPlay)
             },
             onPlayNext = {
-                scope.launch { AppModel.playback.addNextToQueue("$provider://song/${track.id}") }
+                scope.launch { AppModel.playback.addNextToQueue(cp.player.core.music.CPMediaId.toCanonicalMediaId(track.id, provider)) }
                 UiEvents.notify(s.library.playNext)
             },
             onAddToPlaylist = { addToPlaylistTrack = track },

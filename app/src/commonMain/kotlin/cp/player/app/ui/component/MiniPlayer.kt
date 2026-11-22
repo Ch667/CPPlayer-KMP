@@ -395,31 +395,36 @@ fun SharedTransitionScope.MiniPlayer(
                             .height(20.dp)
                             .padding(horizontal = 12.dp),
                     )
-                } else {
-                    CpLinearProgress(
-                        progress = progress,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp)
-                            .padding(bottom = 8.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (isDark) 0.12f else 0.08f),
-                    )
-                }
-                val errorText = state.error
-                if (!errorText.isNullOrBlank()) {
-                    // 底栏主播放器的报错是用户能看到的唯一失败原因，截成一行会丢掉
-                    // 后半段（通常是具体的 HTTP 状态 / 解码器名）。两行仍能贴住底栏高度。
-                    CpText(
-                        errorText,
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        maxLines = 2,
-                    )
-                }
+            } else {
+                CpWavyLine(
+                    progress = progress,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 8.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (isDark) 0.12f else 0.08f),
+                    strokeWidth = 3.dp,
+                    amplitude = 2.dp,
+                    wavelength = 12.dp,
+                    // 只在播放中流动：暂停时相位不动，避免常驻逐帧重绘
+                    waveFlowing = state.isPlaying,
+                )
+            }
+            val errorText = state.error
+            if (!errorText.isNullOrBlank()) {
+                // 底栏主播放器的报错是用户能看到的唯一失败原因，截成一行会丢掉
+                // 后半段（通常是具体的 HTTP 状态 / 解码器名）。两行仍能贴住底栏高度。
+                CpText(
+                    errorText,
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 2,
+                )
             }
         }
+    }
 
     // 弹层挂在卡片**外面**：ModalBottomSheet 自己带一层 scrim 与独立窗口，
     // 塞进带 onClick 的 Surface 里会让它的点击落到底栏的「展开播放页」上。

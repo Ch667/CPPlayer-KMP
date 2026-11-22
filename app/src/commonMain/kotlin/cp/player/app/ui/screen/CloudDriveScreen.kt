@@ -165,9 +165,7 @@ private fun CloudDriveContent(
                         onToggleFavorite = {
                             scope.launch {
                                 val target = track.id !in likedIds
-                                AppModel.playback.toggleFavoriteFor(
-                                    "${AppModel.activeProviderId()}://song/${track.id}"
-                                )
+                                AppModel.playback.toggleFavoriteFor(AppModel.toMediaId(track.id))
                                 UiEvents.notify(if (target) "已收藏" else "已取消收藏")
                             }
                         },
@@ -224,6 +222,8 @@ private fun CloudDriveContent(
         val index = state.songs.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
         SongOptionsSheet(
             songName = track.name,
+            albumName = track.album,
+            albumId = track.albumId,
             artistName = track.artist,
             coverUrl = track.coverUrl,
             isFavorite = track.id in likedIds,
@@ -233,7 +233,7 @@ private fun CloudDriveContent(
             onToggleFavorite = {
                 scope.launch {
                     val target = track.id !in likedIds
-                    AppModel.playback.toggleFavoriteFor("${AppModel.activeProviderId()}://song/${track.id}")
+                    AppModel.playback.toggleFavoriteFor(AppModel.toMediaId(track.id))
                     UiEvents.notify(if (target) "已收藏" else "已取消收藏")
                 }
             },
