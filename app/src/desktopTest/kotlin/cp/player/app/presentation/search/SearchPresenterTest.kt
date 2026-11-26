@@ -35,6 +35,8 @@ class SearchPresenterTest {
         override val name: String = "Test"
         override val version: String = "1.0.0"
         override val type: ProviderType = ProviderType.JNI
+        override val updateUrl: String? = null
+        override val targetAppPackage: String? = null
     }
 
     private fun fakeProvider(id: String): BackendProvider = object : BackendProvider {

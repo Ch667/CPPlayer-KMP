@@ -143,10 +143,10 @@ class CpImagePipelineTest {
     @Test
     fun `CoverPrefetcher resolveNextTrackCoverUrl respects repeat mode and distinct covers`() {
         val items = listOf(
-            QueueItem("m1", "t1", "a1", coverUrl = "https://cdn.test/1.jpg"),
-            QueueItem("m2", "t2", "a2", coverUrl = "https://cdn.test/2.jpg"),
+            QueueItem("m1", "t1", "a1", album = null, coverUrl = "https://cdn.test/1.jpg", durationMs = 0L),
+            QueueItem("m2", "t2", "a2", album = null, coverUrl = "https://cdn.test/2.jpg", durationMs = 0L),
         )
-        val current = TrackSummary("1", "t1", "a1", coverUrl = "https://cdn.test/1.jpg")
+        val current = TrackSummary("1", "t1", "a1", album = null, coverUrl = "https://cdn.test/1.jpg", durationMs = 0L)
         assertEquals(
             "https://cdn.test/2.jpg",
             CoverPrefetcher.resolveNextTrackCoverUrl(
@@ -162,7 +162,7 @@ class CpImagePipelineTest {
             "https://cdn.test/1.jpg",
             CoverPrefetcher.resolveNextTrackCoverUrl(
                 PlaybackUiState(
-                    currentTrack = TrackSummary("2", "t2", "a2", coverUrl = "https://cdn.test/2.jpg"),
+                    currentTrack = TrackSummary("2", "t2", "a2", album = null, coverUrl = "https://cdn.test/2.jpg", durationMs = 0L),
                     currentIndex = 1,
                     queue = items,
                     repeatMode = RepeatMode.ALL,
