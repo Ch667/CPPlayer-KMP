@@ -74,7 +74,7 @@ class AlbumDetailScreen(
     @Composable
     override fun Content() {
         val navigator = LocalAppNavigator.current
-        val resolvedId = fallback?.resourceId ?: albumId.toString()
+        val resolvedId = fallback?.resourceId ?: albumResourceId
         AlbumDetailContent(
             albumId = fallback?.resourceId ?: albumResourceId,
             fallback = fallback,

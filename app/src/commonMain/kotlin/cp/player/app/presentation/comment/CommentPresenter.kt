@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -209,6 +210,42 @@ class CommentPresenter(
         return runCatching { cp.player.core.music.CPMediaId.parse(fullId).resourceId }.getOrDefault(fullId)
     }
 
+    /** Retry transient provider failures before the comment pane exposes its retry button. */
+    private suspend fun loadCommentPageWithRetry(
+        requestedSort: Int,
+        offset: Int,
+        cursor: String?,
+    ) = withContext(Dispatchers.IO) {
+        val backoffs = longArrayOf(350L, 900L)
+        suspend fun request() = AppModel.musicRepository.getComments(
+            rawId = extractRawId(id),
+            type = type,
+            limit = PAGE_SIZE,
+            offset = offset,
+            sortType = requestedSort,
+            cursor = cursor,
+        )
+        var result = runCatching { request() }.getOrElse {
+            BackendResult.Error(it.message ?: "加载评论失败")
+        }
+        for (waitMs in backoffs) {
+            if (!isTransientCommentFailure(result)) return@withContext result
+            delay(waitMs)
+            result = runCatching { request() }.getOrElse {
+                BackendResult.Error(it.message ?: "加载评论失败")
+            }
+        }
+        result
+    }
+
+    private fun isTransientCommentFailure(result: cp.player.core.music.MusicResult<*>): Boolean {
+        val error = result as? BackendResult.Error ?: return false
+        val category = (error.cause as? cp.player.sdk.ProviderException)?.failure?.category
+        if (category in setOf(cp.player.sdk.FailureCategory.NETWORK, cp.player.sdk.FailureCategory.TIMEOUT, cp.player.sdk.FailureCategory.RATE_LIMIT)) return true
+        val message = error.message.lowercase()
+        return listOf("network", "timeout", "timed out", "connection", "connect", "socket", "temporar", "rate limit", "rate_limit", "invalidresponse").any(message::contains)
+    }
+
     /** 重新加载第一页（首次进入 / 下拉刷新 / 失败重试）。 */
     override fun loadComments() {
         reload(force = true)
@@ -266,17 +303,7 @@ class CommentPresenter(
 
         loadJob = scope.launch {
             try {
-                val result = withContext(Dispatchers.IO) {
-                    runCatching {
-                        AppModel.musicRepository.getComments(
-                            rawId = extractRawId(id),
-                            type = type,
-                            limit = PAGE_SIZE,
-                            offset = 0,
-                            sortType = requestedSort,
-                        )
-                    }.getOrElse { BackendResult.Error(it.message ?: "加载评论失败") }
-                }
+                val result = loadCommentPageWithRetry(requestedSort, offset = 0, cursor = null)
                 if (gen != loadGen) return@launch
                 _state.update { s ->
                     when (result) {
@@ -329,18 +356,7 @@ class CommentPresenter(
         _state.update { it.copy(loadingMore = true) }
         loadJob = scope.launch {
             try {
-                val result = withContext(Dispatchers.IO) {
-                    runCatching {
-                        AppModel.musicRepository.getComments(
-                            rawId = extractRawId(id),
-                            type = type,
-                            limit = PAGE_SIZE,
-                            offset = nextOffset,
-                            sortType = serverSortType,
-                            cursor = nextCursor,
-                        )
-                    }.getOrElse { BackendResult.Error(it.message ?: "加载更多评论失败") }
-                }
+                val result = loadCommentPageWithRetry(serverSortType, offset = nextOffset, cursor = nextCursor)
                 if (gen != loadGen || _state.value.sortType != requestedSort) return@launch
                 _state.update { curr ->
                     when (result) {

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -64,6 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.layout.ContentScale
@@ -96,6 +98,7 @@ import cp.player.app.ui.component.playlistContextMenuItems
 import cp.player.app.ui.component.desktopScrollbarGutter
 import cp.player.app.ui.model.LibraryUiState
 import cp.player.app.ui.util.rememberCoverImageRequest
+import cp.player.app.ui.util.resized
 import cp.player.app.ui.wall.PosterWallIcon
 import cp.player.core.music.AlbumSummary
 import cp.player.core.music.PlaylistSummary

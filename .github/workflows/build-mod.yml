@@ -58,11 +58,11 @@ jobs:
           KEY_PASSWORD: cpplayer2026
         run: |
           chmod +x gradlew
-          ./gradlew :app-android:assembleRelease -Papp.versionName=1.9.6 -Papp.versionCode=1009008 \
+          ./gradlew :app-android:assembleRelease -Papp.versionName=1.13.0-mod -Papp.versionCode=1013001 \
             -x lintVitalAnalyzeRelease -x lintVitalRelease -x reportReleaseComposeMappingErrors --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: CPPlayer-1.9.6-mod
+          name: CPPlayer-1.13.0-mod
           path: |
             app-android/build/outputs/apk/release/*.apk
             app-android/build/outputs/mapping/release/mapping.txt

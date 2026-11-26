@@ -161,7 +161,9 @@ object DesktopHiResEngine {
                     val pathBuf = arena.allocate(1024L)
                     val len = getModuleFileName.invokeWithArguments(java.lang.foreign.MemorySegment.NULL, pathBuf, 512) as Int
                     if (len > 0) {
-                        val exePath = pathBuf.getString(0, java.nio.charset.StandardCharsets.UTF_16LE)
+                        val pathBytes = pathBuf.asSlice(0, len.toLong() * 2L)
+                            .toArray(java.lang.foreign.ValueLayout.JAVA_BYTE)
+                        val exePath = String(pathBytes, java.nio.charset.StandardCharsets.UTF_16LE)
                         val appRoot = File(exePath).parentFile
                         if (appRoot != null && appRoot.exists()) {
                             searchCandidates += File(appRoot, libFileName)

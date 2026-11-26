@@ -1,33 +1,25 @@
 package cp.player.app.ui.model
 
-import cafe.adriel.voyager.core.model.ScreenModel
-import cafe.adriel.voyager.core.model.screenModelScope
-import cp.player.app.AppModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import cp.player.app.presentation.library.LibraryPresenter
 import cp.player.app.ui.util.UiEvents
 import cp.player.core.music.PlaylistSummary
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.launch
 
 typealias LibraryUiState = cp.player.app.presentation.library.LibraryUiState
 
-/** Voyager adapter; library state and requests remain in the framework-neutral presenter. */
-class LibraryScreenModel(initialPlaylistId: Long? = null) : ScreenModel {
+/** Lifecycle adapter; library state and requests remain in the framework-neutral presenter. */
+class LibraryScreenModel(initialPlaylistId: Long? = null) : ViewModel() {
     private val presenter = LibraryPresenter(
         initialPlaylistId = initialPlaylistId,
-        scope = screenModelScope,
+        scope = viewModelScope,
         notify = UiEvents::notify,
     )
 
     val state: StateFlow<LibraryUiState> get() = presenter.state
     val refreshing: StateFlow<Boolean> get() = presenter.refreshing
 
-    init {
-        screenModelScope.launch {
-            AppModel.albumFavoriteGeneration.drop(1).collect { presenter.refreshAlbums() }
-        }
-    }
 
     fun selectPlaylist(playlistId: Long?) = presenter.selectPlaylist(playlistId)
     fun selectTab(index: Int) = presenter.selectTab(index)
