@@ -10,13 +10,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
+import cp.player.app.ui.component.CpAlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import cp.player.app.ui.theme.LocalIsDarkTheme
 import cp.player.app.ui.theme.cpNestedSurface
 import cp.player.app.ui.theme.cpSheetInnerSurface
-import cp.player.app.ui.theme.cpSheetSurface
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,7 +40,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.screen.Screen
+import cp.player.app.ui.navigation.RoutePage
 import cp.player.app.AppModel
 import cp.player.app.i18n.CpStrings
 import cp.player.app.i18n.cpStrings
@@ -62,7 +61,7 @@ import cp.player.app.ui.component.CpText
 /**
  * 快捷键设置页面（桌面端专属）：自定义全局与应用内快捷键。
  */
-class ShortcutSettingsScreen : Screen {
+class ShortcutSettingsScreen : RoutePage {
     @Composable
     override fun Content() {
         val navigator = LocalAppNavigator.current
@@ -274,9 +273,8 @@ private fun ShortcutRecorderDialog(
         waiting = false
     }
 
-    AlertDialog(
+    CpAlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = cpSheetSurface(),
         title = { CpText(s.shortcuts.recorderTitle) },
         text = {
             Column(

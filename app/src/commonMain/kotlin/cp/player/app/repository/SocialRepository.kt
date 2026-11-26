@@ -15,8 +15,10 @@ import cp.player.sdk.ForwardEventRequest
 import cp.player.sdk.IdRequest
 import cp.player.sdk.MessageHistoryRequest
 import cp.player.sdk.PageRequest
+import cp.player.sdk.PublishEventRequest
 import cp.player.sdk.ResourceLikeRequest
 import cp.player.sdk.SendMessageRequest
+import cp.player.sdk.ShareResourceRequest
 import cp.player.sdk.SocialUser
 import cp.player.sdk.SocialEvent
 import cp.player.sdk.UserEventRequest
@@ -140,6 +142,19 @@ class SocialRepository(
         return result.mapPage()
     }
 
+    suspend fun publish(text: String, songId: String?): MusicResult<Unit> {
+        val result = if (songId == null) {
+            source.publishEvent(PublishEventRequest(text))
+        } else {
+            source.shareResource(ShareResourceRequest(id = songId, type = "song", text = text))
+        }
+        return result.failureOrUnsupported<Unit>() ?: if ((result as BackendResult.Success).data.success) {
+            BackendResult.Success(Unit)
+        } else {
+            BackendResult.Error("当前音源没有接受这条动态")
+        }
+    }
+
     /** 点赞 / 取消点赞一条动态；返回服务端是否受理。 */
     suspend fun likeEvent(eventId: String, liked: Boolean): Boolean =
         (source.likeResource(
@@ -165,8 +180,8 @@ class SocialRepository(
         val page = data
         return BackendResult.Success(
             DynamicPage(
-                items = page.items.map { it.toDynamicPost() },
-                hasMore = page.hasMore == true,
+                items = page.items.distinctBy { it.id }.map { it.toDynamicPost() },
+                hasMore = page.hasMore == true && !page.cursor.isNullOrBlank(),
                 cursor = page.cursor?.takeIf(String::isNotBlank),
             ),
         )

@@ -58,8 +58,8 @@ object CpStringsZh : CpStrings {
             subtitle = "跟随系统，或固定为简体中文 / English", // 混排 English 的理由见 optionEnglish
         )
         override val itemAppearance = CpTextPair(
-            title = "外观与主题",
-            subtitle = "主题模式、取色来源与纯黑背景",
+            title = "界面设置",
+            subtitle = "主题、语言、动效与导航",
         )
         override val itemPlayback = CpTextPair(
             title = "播放与音质",
@@ -104,10 +104,6 @@ object CpStringsZh : CpStrings {
         override val itemOnboarding = CpTextPair(
             title = "重看新手引导",
             subtitle = "重新走一遍首次使用引导",
-        )
-        override val itemNavigation = CpTextPair(
-            title = "导航入口",
-            subtitle = "动态替代搜索、隐藏动态 / 消息入口，以及音源不支持的功能",
         )
     }
 
@@ -170,7 +166,7 @@ object CpStringsZh : CpStrings {
     }
 
     override val appearance: AppearanceStrings = object : AppearanceStrings {
-        override val screenTitle = "外观与主题"
+        override val screenTitle = "界面设置"
         override val sectionLook = "外观"
         override val sectionMotion = "界面动效与视觉表现"
         override val sectionContent = "内容与列表呈现"
@@ -201,14 +197,21 @@ object CpStringsZh : CpStrings {
         override val pureBlackNote = "深色下使用纯黑背景，OLED 更省电"
         override val autoHideBottomBar = "自动隐藏底栏"
         override val autoHideBottomBarNote = "上滑收起底栏，下滑恢复"
+        override val predictiveBack = "预测性手势返回"
+        override val predictiveBackNote = "从屏幕边缘侧滑返回时实时预览上一级界面"
         override val coverFlight = "封面飞行动画"
         override val coverFlightNote = "封面飞入播放页的转场动画"
 
         override val fluidBackground = "流体背景"
         override val fluidBackgroundNote = "播放页流动渐变背景，关闭可省电"
+        override val fluidBackgroundDarkOverlay = "深色模式流体背景遮罩"
+        override val fluidBackgroundDarkOverlayNote = "深色模式下压暗播放页的流体背景（Android 13 为 15%，其余平台和版本为 20%）"
 
         override val fluidBackgroundFps = "流体背景帧率"
         override val fluidBackgroundFpsNote = "流体动画最高帧率，越高越流畅"
+        override val desktopPlayerControls = "桌面播放界面"
+        override val desktopPlayerVolume = "显示音量控制条"
+        override val desktopPlayerVolumeNote = "在桌面播放页的播放按钮下方显示音量控制条"
 
         override val showSongAlbum = "显示歌曲专辑名"
         override val showSongAlbumNote = "在歌曲列表显示所属专辑"
@@ -961,10 +964,6 @@ object CpStringsZh : CpStrings {
         override val immersiveLyricsOn = "沉浸歌词 (已开启)"
         override val immersiveLyricsOff = "沉浸歌词 (已关闭)"
         override val playerSettings = "播放界面设置"
-        override val viewFullMetadata = "查看完整元数据 →"
-        override val wordByWordLyrics = "逐字歌词"
-        override val dynamicLyrics = "动态歌词"
-        override val lyricOffsetChip = "微调"
         override fun lyricOffsetChipValue(label: String, seconds: String) = "$label ($seconds)"
 
         override val similarSongs = "相似歌曲"
@@ -1333,15 +1332,20 @@ object CpStringsZh : CpStrings {
 
     override val update: AppUpdateStrings = object : AppUpdateStrings {
         override val title = "发现新版本"
-        override val changelogTitle = "更新内容与说明"
+        override fun titleWithVersion(version: String) = "发现新版本 v$version"
+        override val changelogTitle = "更新日志"
         override val defaultChangelog = "此版本包含常规体验优化、性能改进与问题修复。\n建议保持更新以获得最佳使用体验。"
         override val viewDiffOnGithub = "在 GitHub 上查看完整代码差异对比"
-        override val downloadNow = "立即下载更新"
-        override val releasePage = "发布页"
-        override val later = "稍后再说"
-        override fun publishedAt(date: String) = "发布于 $date"
+        override val downloadNow = "立即更新"
+        override val releasePage = "查看详情"
+        override val later = "稍后提醒"
+        override val disableAutoUpdate = "关闭自动更新"
+        override val installPackage = "选择安装类型:"
+        override fun publishedAt(date: String) = "发布时间: $date"
         override val packageAndroid = "Android 安装包 (.apk)"
         override val packageWindows = "Windows 安装程序 (.exe)"
+        override val packageWindowsPortable = "Windows 便携版 (ZIP)"
+        override val packageMacos = "macOS DMG 镜像"
         override val packageLinuxDeb = "Linux Debian/Ubuntu (.deb)"
         override val packageLinuxTar = "Linux 通用包 (.tar.gz)"
         override val packageLinux = "Linux 软件包"
@@ -1408,6 +1412,10 @@ object CpStringsZh : CpStrings {
         override val fmExplore = "探索"
         override val fmFamiliar = "熟悉"
         override val fmPuzzle = "拼图"
+        override val fmGuideTitle = "随播放自动更新列表"
+        override val fmGuideBody = "点击任意歌曲即可开启当前频道的私人 FM 连续播放，播至队尾前会自动拉取并追加新曲目；也可以随时切换上方频道或手动刷新。"
+        override fun fmLiveStatus(count: Int) = "同步中 · $count 首"
+        override fun fmReadyStatus(count: Int) = "当前 $count 首"
         override val localLibrary = "本地曲库"
         override val localLibraryNote = "浏览设备音乐文件"
         override val intelligenceNote = "围绕今日推荐延展"
@@ -1496,6 +1504,18 @@ object CpStringsZh : CpStrings {
             "仅在独占模式下成立；共享模式会被系统混音器重采样到设备默认采样率"
         override val dspTitle = "64 位浮点 DSP 管线"
         override val dspNote = "5 段参数均衡器 (PEQ)、左右声道平衡与立体声宽度，跑在引擎内而非系统音效链"
+
+        override val sectionToggles = "硬件输出与解码选项"
+        override val androidUsbExclusiveTitle = "USB DAC 硬件独占输出 (UAC 2.0)"
+        override val androidUsbExclusiveNote = "默认使用系统 AAudio 共享输出；开启后仅在实际播放期间接管 USB 声卡，暂停、停止或退出时立即释放。"
+        override val androidUsbAutoResumeTitle = "USB 断开 3 秒内重连自动恢复播放"
+        override val androidUsbAutoResumeNote = "USB 耳机或解码器意外断开后若在 3 秒内重新连接，自动继续播放；对 Media3 与 FlickEngine 均生效。"
+        override val dsdModeTitle = "DSD 输出模式"
+        override val dsdModePcm = "PCM 抽取"
+        override val dsdModeDop = "DoP"
+        override val dsdModeNative = "Native DSD"
+        override val dsdModeAuto = "自动"
+        override val togglesNote = "DSD 输出模式仅对 DSD 音源生效（PCM 软解适合所有设备，DoP / Native 需外接解码器支持）。"
 
         override val badgeActive = "生效中"
         override val badgeNeedsFlick = "需 FlickEngine"

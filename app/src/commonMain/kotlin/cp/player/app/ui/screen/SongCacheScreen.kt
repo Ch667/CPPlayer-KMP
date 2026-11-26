@@ -13,18 +13,18 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import cp.player.app.ui.component.CpLoadingIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.screen.Screen
+import cp.player.app.ui.navigation.pageModel
+import cp.player.app.ui.navigation.RoutePage
 import cp.player.app.i18n.cpStrings
 import cp.player.app.ui.component.CpRouteScaffold
 import cp.player.app.ui.component.CpSpacing
@@ -65,13 +65,13 @@ import cp.player.app.ui.component.CpText
  * 想删掉重下）。没有搜索就只能滚动翻找。关键字匹配曲名 / 歌手 / 音质 / 文件名，
  * 规则在 core 的 [SongCacheEntry.matches] 里，与数据本身同源。
  */
-class SongCacheScreen : Screen {
+class SongCacheScreen : RoutePage {
 
     @Composable
     override fun Content() {
         val navigator = LocalAppNavigator.current
-        // rememberScreenModel 是 Screen 的扩展函数，只能在 Content() 里调用（见 AGENTS.md）。
-        val model = rememberScreenModel { SongCacheModel() }
+        // pageModel 是 RoutePage 的扩展函数，只能在 Content() 里调用（见 AGENTS.md）。
+        val model = pageModel { SongCacheModel() }
         SongCacheContent(model = model, onBack = { navigator.pop() })
     }
 }
@@ -216,9 +216,8 @@ private fun ColumnScope.SongCacheHeader(
                 enabled = state.canConvertAll || state.converting,
             ) {
                 if (state.converting) {
-                    CircularProgressIndicator(
+                    CpLoadingIndicator(
                         modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
                         // 按钮底色是 primary，指示器必须用 onPrimary 才看得见
                         color = MaterialTheme.colorScheme.onPrimary,
                     )

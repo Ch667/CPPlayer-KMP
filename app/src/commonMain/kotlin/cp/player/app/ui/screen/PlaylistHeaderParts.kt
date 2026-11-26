@@ -1,6 +1,7 @@
 package cp.player.app.ui.screen
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -36,7 +37,7 @@ import cp.player.app.ui.component.TrackPrimaryAction
 import cp.player.app.ui.component.TrackPrimaryActionRow
 import cp.player.app.ui.component.TrackSecondaryActionRow
 import cp.player.app.ui.component.TrackSecondarySpec
-import cp.player.app.ui.util.resized
+import cp.player.app.ui.util.rememberCoverImageRequest
 import cp.player.core.music.PlaylistSummary
 
 /**
@@ -88,19 +89,24 @@ internal fun PlaylistHeaderInfo(
             color = cpNestedSurface(),
             shadowElevation = 4.dp,
         ) {
-            if (!summary.coverUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = summary.coverUrl.resized(300),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
+            Box(Modifier.fillMaxSize()) {
                 CpCoverPlaceholder(
                     modifier = Modifier.fillMaxSize(),
                     corner = 16.dp,
                     animated = false,
                 )
+                if (!summary.coverUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = rememberCoverImageRequest(
+                            summary.coverUrl,
+                            targetSizeDp = 108.dp,
+                            placeholderBucketPx = 256,
+                        ),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
         }
         Column(
@@ -210,19 +216,24 @@ internal fun PlaylistInfoRail(
             color = cpNestedSurface(),
             shadowElevation = 8.dp,
         ) {
-            if (!summary.coverUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = summary.coverUrl.resized(600),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
+            Box(Modifier.fillMaxSize()) {
                 CpCoverPlaceholder(
                     modifier = Modifier.fillMaxSize(),
                     corner = 28.dp,
                     animated = false,
                 )
+                if (!summary.coverUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = rememberCoverImageRequest(
+                            summary.coverUrl,
+                            targetSizeDp = 208.dp,
+                            placeholderBucketPx = 256,
+                        ),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
         }
 

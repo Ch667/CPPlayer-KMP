@@ -20,6 +20,12 @@ interface MusicProvider : LyricsProvider, Playlists, Albums, Artists, Recommenda
     })
     /** Resolve playable audio with the actual quality and explicit resource headers, not the account credential. Capability: tracks.resolve. Tag: 5. Undeclared or unimplemented capabilities fail with Unsupported. */
     suspend fun resolve(request: ResolveRequest): MediaResource = unsupported()
+    /**
+     * Optional multi-tier cover URL resolver for custom CDNs.
+     * Providers do NOT need to override this: returning null lets the host apply
+     * `manifest.json` `imageResize` rules or local high-to-low downscaling automatically.
+     */
+    fun resolveCoverUrl(rawUrl: String, targetPx: Int): String? = null
     /** Release owned resources after cancellation and draining; the host closes an instance once. */
     suspend fun close() {}
 }
@@ -124,7 +130,7 @@ interface Discovery {
 }
 
 interface Accounts {
-    /** Inspect current-session login state without replacing the immutable session credential. Capability: accounts.session. Tag: 59. Undeclared or unimplemented capabilities fail with Unsupported. */
+    /** Inspect current-session login state without changing its credential. A logged-in result requires a provider-local user ID. Capability: accounts.session. Tag: 59. Undeclared or unimplemented capabilities fail with Unsupported. */
     suspend fun getCurrentAccount(request: Bytes): AccountSession = unsupported()
     /** Get a public profile by provider-local user ID. Capability: accounts.profile. Tag: 32. Undeclared or unimplemented capabilities fail with Unsupported. */
     suspend fun getUserProfile(request: UserRequest): UserProfile = unsupported()
@@ -143,7 +149,7 @@ interface Accounts {
 }
 
 interface Authentication {
-    /** Perform a named authentication action. The host owns credential persistence and subsequent session replacement. Capability: auth.actions. Tag: 60. Undeclared or unimplemented capabilities fail with Unsupported. */
+    /** Perform a named authentication action. The host verifies a final login credential before storing it and replacing the session. Capability: auth.actions. Tag: 60. Undeclared or unimplemented capabilities fail with Unsupported. */
     suspend fun authenticate(request: AuthActionRequest): AuthActionResult = unsupported()
 }
 
@@ -222,6 +228,17 @@ object FailureCategory {
 class ProviderException(val failure: Failure) : Exception(failure.category)
 fun unsupported(): Nothing = throw ProviderException(Failure(FailureCategory.UNSUPPORTED, "Capability not supported"))
 
+/**
+ * Optional read-only host lifecycle & bandwidth hint exposed to SDK providers.
+ * Providers are NOT required to inspect this: the host automatically handles HTTP
+ * caching, request coalescing, background suppression and image tier selection.
+ */
+data class HostRuntimeState(
+    val inBackgroundTray: Boolean = false,
+    val dataSaver: Boolean = false,
+    val preferredImagePx: Int = 512,
+)
+
 /** Scoped capabilities, not a reference to the application or its database. */
 interface ProviderRuntime {
     /** Allowed-origin HTTP with explicit credentials, no redirects and at most 4 MiB per body. */
@@ -232,6 +249,8 @@ interface ProviderRuntime {
     suspend fun read(key: String): ByteArray?
     /** Store a copy, or delete with null. Per-value and total storage are bounded to 1 MiB. */
     suspend fun write(key: String, value: ByteArray?)
+    /** Optional host lifecycle/bandwidth hint; defaults to foreground/unrestricted. */
+    fun hostState(): HostRuntimeState = HostRuntimeState()
 }
 
 /** Do not retain a context across account changes; the host creates a new instance. */
@@ -248,5 +267,7 @@ class ProviderContext(
 ) {
     /** Immutable saved/default settings snapshot. */
     val settings = settings.toMap()
+    /** Optional live host lifecycle/bandwidth hint from [runtime]. */
+    val hostState: HostRuntimeState get() = runtime.hostState()
     override fun toString() = "ProviderContext($providerId)"
 }

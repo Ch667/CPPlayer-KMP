@@ -102,12 +102,22 @@ RELEASE_KEY_PASSWORD
 | 配置 | 必填 | 说明 |
 |---|---|---|
 | `OPENAI_API_KEY` | 二选一 | OpenAI 或兼容服务密钥；配置后优先走 OpenAI 兼容接口 |
-| `OPENAI_BASE_URL` | 否 | 自定义 base URL，默认 `https://api.openai.com/v1`。可填 `https://host/v1`、带尾斜杠的地址，或完整的 `.../chat/completions` |
-| `OPENAI_MODEL` | 否 | 自定义模型，默认 `gpt-4o-mini`；换第三方服务时通常必须同步修改 |
-| `GEMINI_API_KEY` | 二选一 | 仅在没有 `OPENAI_API_KEY` 时使用 |
-| `GEMINI_MODEL` | 否 | Gemini 模型，默认 `gemini-1.5-flash` |
+| `OPENAI_BASE_URL` | 否 | 自定义 base URL，默认 `https://api.openai.com/v1`。可填裸域名（自动补 `/v1`）、`https://host/v1`、带尾斜杠的地址，或完整的 `.../chat/completions`。已带版本段或自定义路径（如 `/v2`、`/api/v1`）原样使用，不重复拼接 |
+| `OPENAI_MODEL` | 否 | 自定义模型，默认 `deepseek-v4.1-flash-1017`；换第三方服务时通常必须同步修改 |
+| `GEMINI_API_KEY` | 二选一 | 仅在 OpenAI 兼容端点所有候选都失败时使用 |
+| `GEMINI_MODEL` | 否 | Gemini 模型，默认 `gemini-2.5-flash` |
+| `AI_FETCH_MODEL_LIST` | 否 | 默认开启，从上游 `{OPENAI_BASE_URL}/models` 拉取模型列表；设 `0` / `false` / `no` 关闭 |
 
-`OPENAI_BASE_URL` / `OPENAI_MODEL` / `GEMINI_MODEL` 可以放在仓库 **Variables** 或 **Secrets**，workflow 优先读 Variables。更新日志只写 AI 的正文输出，请求日志走 stderr，不会进入发布说明。
+模型尝试顺序（任一成功即停止）：
+
+1. 配置的 `OPENAI_MODEL`（默认 `deepseek-v4.1-flash-1017`）。
+2. 上游模型列表中近似 `deepseek-v4.1-flash` 的模型（优先日期等价变体，如 `deepseek-v4.1-flash-10-17`）。
+3. 自动回退模型 `gpt-6-luna`、`gemini-3.1-flash-lite`。
+4. 若仍失败且配置了 `GEMINI_API_KEY`，改用 Gemini 端点：`GEMINI_MODEL` → `gemini-3.1-flash-lite`。
+
+上游模型列表拉取是 best-effort：超时（3 秒）、失败或格式异常都会静默跳过，不影响生成。模型列表请求和每次尝试的失败原因只写 stderr，不会进入发布说明。
+
+`OPENAI_BASE_URL` / `OPENAI_MODEL` / `GEMINI_MODEL` / `AI_FETCH_MODEL_LIST` 可以放在仓库 **Variables** 或 **Secrets**，workflow 优先读 Variables。
 
 ## 5. 桌面打包
 
@@ -184,7 +194,7 @@ JBR 的 `.sha256` 文件未发布（cache-redirector 返回 403），`app/build.
 
 ### 5.4 Native Image（Nucleus 3.0）
 
-Nucleus 固定在 `gradle/libs.versions.toml` 的 `3.0.0-dev-202611161221`。3.0 移除了 `NucleusBackend` / `LocalNucleusBackend`：`nucleusApplication(args) { ... }` 是唯一入口，且必须转发 `args`（单实例移交、深链、`--veloapp-*` 钩子都从那里进来）。
+Nucleus 固定在 `gradle/libs.versions.toml` 的 `3.0.0-dev-202611222143`。3.0 移除了 `NucleusBackend` / `LocalNucleusBackend`：`nucleusApplication(args) { ... }` 是唯一入口，且必须转发 `args`（单实例移交、深链、`--veloapp-*` 钩子都从那里进来）。
 
 | 项 | 内容 |
 |---|---|
@@ -204,7 +214,16 @@ Nucleus 固定在 `gradle/libs.versions.toml` 的 `3.0.0-dev-202611161221`。3.0
 |---|---|
 | `headless = false` | 保留 L3 的 GUI 元数据（Compose / Skiko 必需） |
 | `autoIncludeResources = true` | 注册工程资源根 |
+| `-H:ExcludeResources=…` | Windows 原生版排除三款外置字体；打包时须放入 EXE 同级 `fonts/` |
 | `detectOrphanProjectClasses = true` | 为注解处理器产物补无参构造器 |
+
+用 `-Pcp.graalvm.buildReport=true` 输出 GraalVM 构建报告，区分代码、镜像堆和资源。比较工作集时，用同一份 Windows 原生包、同一窗口尺寸和同一首歌；分别用 `CPPLAYER_RENDER_API=DIRECT3D` 和 `CPPLAYER_RENDER_API=SOFTWARE_FAST` 重启，并各采集首页空闲 60 秒、播放页 300 秒和托盘 60 秒。逐项比较 Total WS、Private WS、Private Commit 和动画流畅度：
+
+```powershell
+.\scripts\measure-windows-memory.ps1 -ProcessId 1234 -Scenario d3d-idle -Seconds 60 -CsvPath d3d-idle.csv -RequireSingleNativeProvider
+```
+
+切换音源时可另采一轮，检查已加载的音源快照最多一个，并确认切换前后的快照不同。单个音源所带的依赖 DLL 归入同一个快照计数。确认渲染后端确实生效后，再单独调整图片缓存上限做第二轮对照；不要把渲染和缓存的变化混在一次采样里。
 
 不要先手写反射条目：先跑 `:app:cleanupGraalvmMetadata`，它会报告已被 L1–L3 或静态分析覆盖的条目。
 

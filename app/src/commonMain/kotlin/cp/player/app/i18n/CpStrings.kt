@@ -241,7 +241,6 @@ interface SettingsStrings {
     val itemDiagnostics: CpTextPair
     val itemRenderTuning: CpTextPair
     val itemOnboarding: CpTextPair
-    val itemNavigation: CpTextPair
 }
 
 /**
@@ -330,7 +329,7 @@ interface MessageNotifyStrings {
 }
 
 // ---------------------------------------------------------------------------
-// 外观与主题
+// 界面设置
 // ---------------------------------------------------------------------------
 
 interface AppearanceStrings {
@@ -364,13 +363,20 @@ interface AppearanceStrings {
     val pureBlackNote: String
     val autoHideBottomBar: String
     val autoHideBottomBarNote: String
+    val predictiveBack: String
+    val predictiveBackNote: String
     val coverFlight: String
     val coverFlightNote: String
 
     val fluidBackground: String
     val fluidBackgroundNote: String
+    val fluidBackgroundDarkOverlay: String
+    val fluidBackgroundDarkOverlayNote: String
     val fluidBackgroundFps: String
     val fluidBackgroundFpsNote: String
+    val desktopPlayerControls: String
+    val desktopPlayerVolume: String
+    val desktopPlayerVolumeNote: String
 
     val showSongAlbum: String
     val showSongAlbumNote: String
@@ -1217,10 +1223,6 @@ interface PlayerStrings {
     val immersiveLyricsOn: String
     val immersiveLyricsOff: String
     val playerSettings: String
-    val viewFullMetadata: String
-    val wordByWordLyrics: String
-    val dynamicLyrics: String
-    val lyricOffsetChip: String
     fun lyricOffsetChipValue(label: String, seconds: String): String
 
     // —— 相似歌曲 ——
@@ -1647,15 +1649,20 @@ interface AboutStrings {
 
 interface AppUpdateStrings {
     val title: String
+    fun titleWithVersion(version: String): String
     val changelogTitle: String
     val defaultChangelog: String
     val viewDiffOnGithub: String
     val downloadNow: String
     val releasePage: String
     val later: String
+    val disableAutoUpdate: String
+    val installPackage: String
     fun publishedAt(date: String): String
     val packageAndroid: String
     val packageWindows: String
+    val packageWindowsPortable: String
+    val packageMacos: String
     val packageLinuxDeb: String
     val packageLinuxTar: String
     val packageLinux: String
@@ -1737,6 +1744,10 @@ interface HomeStrings {
     val fmExplore: String
     val fmFamiliar: String
     val fmPuzzle: String
+    val fmGuideTitle: String
+    val fmGuideBody: String
+    fun fmLiveStatus(count: Int): String
+    fun fmReadyStatus(count: Int): String
     val localLibrary: String
     val localLibraryNote: String
     val intelligenceNote: String
@@ -1823,6 +1834,19 @@ interface EngineStrings {
     val bitPerfectNoteInactive: String
     val dspTitle: String
     val dspNote: String
+
+    // ===== Android USB 独占 & 引擎硬件选项 =====
+    val sectionToggles: String
+    val androidUsbExclusiveTitle: String
+    val androidUsbExclusiveNote: String
+    val androidUsbAutoResumeTitle: String
+    val androidUsbAutoResumeNote: String
+    val dsdModeTitle: String
+    val dsdModePcm: String
+    val dsdModeDop: String
+    val dsdModeNative: String
+    val dsdModeAuto: String
+    val togglesNote: String
 
     val badgeActive: String
     val badgeNeedsFlick: String

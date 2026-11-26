@@ -69,6 +69,7 @@ import coil3.compose.AsyncImage
 import cp.player.app.AppModel
 import cp.player.app.i18n.cpStrings
 import cp.player.app.ui.theme.CpMotion
+import cp.player.app.ui.util.rememberCoverImageRequest
 import cp.player.app.version.AppVersion
 import dev.nucleusframework.window.tao.TaoWindow
 import dev.nucleusframework.window.windowDragArea
@@ -193,6 +194,14 @@ fun DesktopTitleBar(
     onOpenDynamic: () -> Unit = {},
     showMessages: Boolean = true,
     showDynamic: Boolean = false,
+    /**
+     * 是否画「设置」槽位。
+     *
+     * 平板 / 中等宽度（≥600dp）时主壳层左侧 rail 已经承担了设置入口，标题栏再挂一颗
+     * 就是同名两落点 —— 由 [cp.player.app.ui.util.DesktopShell.settingsInRail] 判定。
+     * 槽位摘掉时 [businessSlots] 同步减一，右侧按钮组宽度与拖拽区才不会留下空洞。
+     */
+    showSettings: Boolean = true,
     onToggleMiniMode: () -> Unit = { cp.player.app.ui.util.DesktopShell.isMiniMode = true },
     onToggleMobileMode: () -> Unit = { cp.player.app.ui.util.DesktopShell.isMobileMode = true },
     modifier: Modifier = Modifier,
@@ -217,16 +226,17 @@ fun DesktopTitleBar(
         windowState.placement = if (maximized) WindowPlacement.Floating else WindowPlacement.Maximized
     }
 
-    // 右侧按钮组总宽：账号 + 消息 + 动态 + (仅 desktopRun/debug: 手机预览) + 迷你模式
-    // + 设置 + 分隔线 + 三颗窗口钮。消息 / 动态被隐藏时**连槽位一起消失**，
+    // 右侧按钮组总宽：账号 + 消息 + 动态 + (仅 desktopRun/debug: 手机预览)
+    // + 设置 + 分隔线 + 四颗窗口钮。消息 / 动态被隐藏时**连槽位一起消失**，
     // 否则搜索框会为一个看不见的按钮保留 44dp，左右不再对称。
     val showMobilePreview = AppVersion.isDesktopRunOrDebug
-    val businessSlots = 3 +
+    val businessSlots = 1 +
         (if (showMessages) 1 else 0) +
         (if (showDynamic) 1 else 0) +
-        (if (showMobilePreview) 1 else 0)
+        (if (showMobilePreview) 1 else 0) +
+        (if (showSettings) 1 else 0)
     val rightGroupWidth =
-        ChromeSlotWidth * (businessSlots + 3) + ChromeSeparatorWidth
+        ChromeSlotWidth * (businessSlots + 4) + ChromeSeparatorWidth
 
     Box(
         modifier = modifier
@@ -351,17 +361,13 @@ fun DesktopTitleBar(
                             Icon(Icons.Filled.PhoneAndroid, "手机版界面预览", modifier = Modifier.size(18.dp))
                         }
                     }
-                    ChromeSlot(
-                        onClick = onToggleMiniMode,
-                        modifier = Modifier.chromeFade(chromeAlpha, interactive = !immersive),
-                    ) {
-                        Icon(Icons.Filled.PictureInPictureAlt, "迷你模式", modifier = Modifier.size(18.dp))
-                    }
-                    ChromeSlot(
-                        onClick = onOpenSettings,
-                        modifier = Modifier.chromeFade(chromeAlpha, interactive = !immersive),
-                    ) {
-                        Icon(Icons.Filled.Settings, s.navigation.settings, modifier = Modifier.size(18.dp))
+                    if (showSettings) {
+                        ChromeSlot(
+                            onClick = onOpenSettings,
+                            modifier = Modifier.chromeFade(chromeAlpha, interactive = !immersive),
+                        ) {
+                            Icon(Icons.Filled.Settings, s.navigation.settings, modifier = Modifier.size(18.dp))
+                        }
                     }
                 } else {
                     // 沉浸态兜底：**把内容从组合里摘掉**，换成等宽留白。
@@ -374,7 +380,7 @@ fun DesktopTitleBar(
                     // （hover 光标走 `pointerHoverIcon` 这条独立链路，不认消费）。
                     // 所以淡完之后直接把节点摘掉：命中测试、光标、焦点随之一起消失。
                     //
-                    // 摘掉就必须自己把宽度补回来 —— 这一段决定了右侧三颗窗口钮的横向位置。
+                    // 摘掉就必须自己把宽度补回来 —— 这一段决定了右侧窗口钮的横向位置。
                     // 左侧块 = 右侧按钮组宽度，中间是原来的 weight(1f)，
                     // 右侧业务槽按 businessSlots 补。沉浸态下窗口顶边仍然可以拖。
                     WindowDragRegion(
@@ -392,6 +398,7 @@ fun DesktopTitleBar(
                 // 只剩一条孤零零的竖线压在窗口钮左边，比没有更显脏。
                 ChromeSeparator(Modifier.chromeFade(chromeAlpha, interactive = true))
 
+                WindowControlButton(Icons.Filled.PictureInPictureAlt, s.player.miniPlayer, onClick = onToggleMiniMode)
                 // ⚠️ 刻意用 `Remove`（居中横线）而不是 `Minimize`：后者的横线贴在该字形框
                 // 底部，与相邻的 CropSquare / Close 不在同一条水平线上（实测低了约 5px，
                 // 肉眼扫过去只是「有点歪」，量像素才看得出来）。
@@ -472,7 +479,7 @@ private fun AccountSlot(onClick: () -> Unit, modifier: Modifier = Modifier) {
     ChromeSlot(onClick = onClick, modifier = modifier) {
         if (!avatarUrl.isNullOrBlank()) {
             AsyncImage(
-                model = avatarUrl,
+                model = rememberCoverImageRequest(avatarUrl, targetPx = 128),
                 contentDescription = s.navigation.account,
                 modifier = Modifier.size(24.dp).clip(CircleShape),
                 contentScale = ContentScale.Crop,

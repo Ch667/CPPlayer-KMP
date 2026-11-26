@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import cp.player.app.i18n.cpStrings
 import cp.player.app.ui.util.formatTimeMs
+import cp.player.app.ui.util.rememberCoverImageRequest
 import cp.player.app.ui.util.resized
 import cp.player.core.playback.PlaybackUiState
 
@@ -113,14 +114,15 @@ fun WallImmersive(
         // 取小图（256）就够了 —— 它会被 blur 掉，请求大图纯属浪费流量，
         // 而且"模糊"本身就掩盖了低分辨率。
         if (!track.coverUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = track.coverUrl.resized(256),
+            cp.player.app.ui.component.CpArtworkImage(
+                request = rememberCoverImageRequest(track.coverUrl, targetPx = 256),
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer { scaleX = 1.3f; scaleY = 1.3f }
                     .blur(52.dp),
                 contentScale = ContentScale.Crop,
+                placeholder = {},
             )
         }
         Box(
@@ -174,14 +176,17 @@ fun WallImmersive(
                                 scaleY = 0.88f + 0.12f * k
                             },
                     ) {
-                        if (!track.coverUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = track.coverUrl.resized(coverRequest),
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop,
-                            )
-                        }
+                        cp.player.app.ui.component.CpArtworkImage(
+                            request = rememberCoverImageRequest(
+                                track.coverUrl,
+                                targetPx = coverRequest,
+                                placeholderBucketPx = 256,
+                            ),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                            placeholderCorner = 22.dp,
+                        )
                     }
 
                     Spacer(Modifier.height(24.dp))
@@ -262,7 +267,7 @@ fun WallImmersive(
                                 ) {
                                     if (!item.coverUrl.isNullOrBlank()) {
                                         AsyncImage(
-                                            model = item.coverUrl.resized(128),
+                                            model = rememberCoverImageRequest(item.coverUrl, targetPx = 128),
                                             contentDescription = null,
                                             modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.55f },
                                             contentScale = ContentScale.Crop,

@@ -134,7 +134,6 @@ internal fun WallZoomLadder(
         modifier = modifier,
         shape = RoundedCornerShape(24.dp),
         color = cpElevatedSurface(),
-        tonalElevation = 3.dp,
     ) {
         Column(
             Modifier
@@ -241,7 +240,6 @@ internal fun WallCrown(
             },
         shape = CircleShape,
         color = cpElevatedSurface(),
-        tonalElevation = 4.dp,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Box(
@@ -305,8 +303,7 @@ internal fun WallHud(
     Surface(
         modifier = modifier,
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 3.dp,
+        color = cpElevatedSurface(),
     ) {
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 9.dp),

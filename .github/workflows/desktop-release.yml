@@ -257,6 +257,50 @@ jobs:
           mkdir -p app/native
           cp "$dll" app/native/rust_lib_flick_player.dll
 
+      # Linux 版**必须**带 FlickEngine：桌面端没有 rodio / 系统播放器回退路径，
+      # 缺这个 .so 的包能装能启动，但任何音乐都放不出声（NoopDesktopPlatformPlayer）。
+      #
+      # 引擎库只放 Release、不进 git：复用已有的 FLICK_NATIVE_RELEASE_TAG，
+      # **不新增 sha256 变量**。GitHub Release 资产是平铺的，Android arm64 已经
+      # 占用 librust_lib_flick_player.so，所以 x86_64 版本必须用另一个资产名，
+      # 下载落地时再改回 JVM 期望的文件名。
+      # 不做 hash 校验，改为结构校验：ELF/架构、JNI 验签入口、VIP 公钥。
+      - name: Fetch FLICK Linux runtime from release
+        if: matrix.platform == 'linux'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FLICK_TAG: ${{ vars.FLICK_NATIVE_RELEASE_TAG }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${FLICK_TAG:?Missing FLICK_NATIVE_RELEASE_TAG}"
+          : "${FLICK_VIP_PUBLIC_KEY:?Missing FLICK_VIP_PUBLIC_KEY}"
+          dir="$RUNNER_TEMP/flick-linux"
+          mkdir -p "$dir"
+          gh release download "$FLICK_TAG" --repo "$GITHUB_REPOSITORY" --dir "$dir" \
+            --pattern librust_lib_flick_player-linux-x64.so
+          so="$dir/librust_lib_flick_player-linux-x64.so"
+          test -s "$so" || { echo "::error::Linux 引擎资产为空"; exit 1; }
+          # 必须先确认是 x86_64 ELF：Android 的 arm64 库同名且 JVM 一样能 dlopen，
+          # 错了的表现是全盘静音、不报错，比直接缺库更难查。
+          magic="$(od -An -tx1 -N4 "$so" | tr -d ' \n')"
+          machine="$(od -An -tx1 -j18 -N2 "$so" | tr -d ' \n')"
+          [[ "$magic" == "7f454c46" && "$machine" == "3e00" ]] || {
+            echo "::error::不是 x86_64 ELF 共享库（magic=$magic machine=$machine）"
+            exit 1
+          }
+          grep -aFq -- 'Java_cp_player_core_playback_DesktopHiResEngine_nativeSetVipLicenseV2' "$so" || {
+            echo "::error::Linux 引擎库缺 nativeSetVipLicenseV2 JNI 入口"
+            exit 1
+          }
+          grep -aFq -- "$FLICK_VIP_PUBLIC_KEY" "$so" || {
+            echo "::error::Linux 引擎库内嵌公钥与 FLICK_VIP_PUBLIC_KEY 不一致（检查引擎交叉构建时是否传了该变量）"
+            exit 1
+          }
+          sha256sum "$so"   # 只留一条可追溯记录，不做校验
+          mkdir -p app/native
+          cp "$so" app/native/librust_lib_flick_player.so
+
       - name: Build desktop package
         shell: bash
         run: |
@@ -360,7 +404,8 @@ jobs:
           for p in \
             'CPPlayer/bin/CPPlayer' \
             'CPPlayer/lib/runtime/release' \
-            'CPPlayer/lib/runtime/lib/modules'
+            'CPPlayer/lib/runtime/lib/modules' \
+            'CPPlayer/lib/app/librust_lib_flick_player.so'
           do
             grep -qx "$p" <<<"$listing" || {
               echo "::error::tar.gz 里缺 $p"
@@ -369,6 +414,8 @@ jobs:
               grep '^CPPlayer/bin/' <<<"$listing" | head -20 || true
               echo "--- 实际 CPPlayer/lib/runtime/（前 30 条）---"
               grep '^CPPlayer/lib/runtime/' <<<"$listing" | head -30 || true
+              echo "--- 实际 CPPlayer/lib/app/（前 30 条）---"
+              grep '^CPPlayer/lib/app/' <<<"$listing" | head -30 || true
               exit 1
             }
           done
@@ -397,6 +444,42 @@ jobs:
             }
           done
           echo "tar.gz 布局 OK"
+
+      # deb 是**另一次**打包调用（electron-builder，自己生成应用镜像），tar.gz 的注入碰不到它。
+      # ⚠️ electron-builder 渲染出的资产名是小写 `cpplayer-<version>-linux-amd64.deb`，
+      # 不是 jpackage 时代的 `CPPlayer-*.deb`。写死大写前缀会 pack 成功却在这里误判成缺包
+      # （v1.12.3 真实事故）。这里按扩展名找，并把实际目录打出来。
+      # 引擎库靠 nativeDistributions.appResourcesRootDir 进入包里。Nucleus 3.0 的
+      # electron-builder 把它放到 lib/app/resources/（和 libnucleus_*.so 同处），
+      # 不再像 jpackage 时代那样落在 lib/app/ 根 —— 两种布局都得认。
+      # tar.gz 那份 lib/app/ 是 app/build.gradle.kts 的事后注入补的，deb 走不到那条路。
+      # DesktopHiResEngine 的加载候选已覆盖这两个位置；这里只管「库在不在包里」。
+      - name: Verify deb contains FlickEngine
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          debs=(app/build/compose/binaries/main/deb/*.deb)
+          if (( ${#debs[@]} != 1 )); then
+            echo "::error::deb 目录里期望恰好 1 个 .deb，实际 ${#debs[@]} 个"
+            ls -la app/build/compose/binaries/main/deb || true
+            exit 1
+          fi
+          deb="${debs[0]}"
+          echo "deb: $deb"
+          tmp="$(mktemp -d)"
+          ( cd "$tmp" && ar x "$OLDPWD/$deb" )
+          data="$(ls "$tmp"/data.tar.*)"
+          listing="$(tar -tf "$data")"
+          flick="$(grep -E 'opt/CPPlayer/lib/app/(resources/)?librust_lib_flick_player\.so$' <<<"$listing" | head -1 || true)"
+          if [[ -z "$flick" ]]; then
+            echo "::error::deb 里缺 /opt/CPPlayer/lib/app/{,resources/}librust_lib_flick_player.so —— Linux 版会静音"
+            echo "--- 实际 lib/app 内容 ---"
+            grep 'opt/CPPlayer/lib/app/' <<<"$listing" | head -30 || true
+            exit 1
+          fi
+          echo "deb 引擎库 OK: /$flick"
       - name: Stage release artifacts
         # 把匹配到的安装包**平铺**到一个目录再上传。upload-artifact 会保留匹配路径的
         # 公共父目录结构：Linux 的 deb/*.deb 与 targz/*.tar.gz 没有共同文件层，
@@ -502,17 +585,9 @@ jobs:
           fi
           echo "--- 将发布 ${#keep[@]} 个文件 ---"
           printf '  %s\n' "${keep[@]}"
-      - name: Generate release notes
-        if: github.event_name != 'workflow_dispatch'
-        shell: bash
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL || secrets.OPENAI_BASE_URL }}
-          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || secrets.OPENAI_MODEL }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL }}
-        run: |
-          bash scripts/generate_release_notes.sh "${{ needs.meta.outputs.tag }}" "${{ runner.temp }}/RELEASE_NOTES.md"
+      # 正文由 Android 工作流（release.yml / debug-release.yml）独家生成，本 job 不调 AI、
+      # 也不传 body/body_path —— softprops 对已存在的 release 不传正文就会保留原样，
+      # 于是无论本 job 与 Android job 谁先跑完，最终正文都是 Android 那份（含下载说明）。
       - name: Publish desktop assets
         if: github.event_name != 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
@@ -521,7 +596,6 @@ jobs:
           tag_name: ${{ needs.meta.outputs.tag }}
           name: "CPPlayer ${{ needs.meta.outputs.version }}${{ needs.meta.outputs.channel == 'debug' && ' (debug)' || '' }}"
           prerelease: ${{ needs.meta.outputs.channel != 'stable' }}
-          body_path: ${{ runner.temp }}/RELEASE_NOTES.md
           files: release-assets/**/*
       - name: Attach assets to existing release only
         if: github.event_name == 'workflow_dispatch'

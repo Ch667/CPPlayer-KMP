@@ -10,7 +10,7 @@ import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material3.AlertDialog
+import cp.player.app.ui.component.CpAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import cp.player.app.ui.theme.LocalIsDarkTheme
-import cp.player.app.ui.theme.cpSheetSurface
 import cp.player.app.i18n.AppLanguage
 import cp.player.app.i18n.displayName
 import cp.player.app.i18n.displayNote
@@ -34,8 +33,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.screen.Screen
+import cp.player.app.ui.navigation.pageModel
+import cp.player.app.ui.navigation.RoutePage
 import cp.player.app.AppModel
 import cp.player.app.i18n.cpStrings
 import cp.player.app.presentation.navigation.AppRoute
@@ -51,6 +50,7 @@ import cp.player.app.ui.component.SettingsPage
 import cp.player.app.ui.component.SettingsSection
 import cp.player.app.ui.component.SettingsSegmentedItem
 import cp.player.app.ui.component.SettingsSwitchItem
+import cp.player.app.ui.component.isTabletLayout
 import cp.player.app.ui.component.settingsSearchTarget
 import cp.player.app.ui.model.SONG_CACHE_CAPACITY_OPTIONS
 import cp.player.app.ui.model.StorageSettingsModel
@@ -65,11 +65,11 @@ import cp.player.app.ui.theme.isPlatformColorSourceAvailable
 import cp.player.app.ui.util.UiEvents
 
 /**
- * 外观与主题设置页面（设计贴合 Android 16 现代原生风格）。
+ * 界面设置页面。
  */
 class AppearanceSettingsScreen(
     private val targetSettingId: String? = null,
-) : Screen {
+) : RoutePage {
     @Composable
     override fun Content() {
         val navigator = LocalAppNavigator.current
@@ -78,8 +78,10 @@ class AppearanceSettingsScreen(
         val colorSource by AppModel.colorSourceFlow.collectAsState()
         val pureBlack by AppModel.pureBlackFlow.collectAsState()
         val bottomBarAutoHide by AppModel.bottomBarAutoHideFlow.collectAsState()
+        val predictiveBackEnabled by AppModel.predictiveBackEnabledFlow.collectAsState()
         val coverFlightAnimation by AppModel.coverFlightAnimationFlow.collectAsState()
         val fluidBackground by AppModel.fluidBackgroundFlow.collectAsState()
+        val fluidBackgroundDarkOverlay by AppModel.fluidBackgroundDarkOverlayFlow.collectAsState()
         val fluidBackgroundFps by AppModel.fluidBackgroundFpsFlow.collectAsState()
         val fluidFpsOptions = listOf(15, 30, 60)
         val showSongAlbum by AppModel.showSongAlbumFlow.collectAsState()
@@ -160,6 +162,8 @@ class AppearanceSettingsScreen(
 
                 // 3. 界面与交互动效
                 SettingsSection(s.appearance.sectionMotion) {
+                    val isAndroid = cp.player.app.platform.isAndroidPlatform()
+                    val motionTotal = if (isAndroid) 6 else 5
                     SettingsSwitchItem(
                         title = s.appearance.coverFlight,
                         modifier = Modifier.settingsSearchTarget("appearance_cover_flight", targetSettingId),
@@ -167,7 +171,7 @@ class AppearanceSettingsScreen(
                         checked = coverFlightAnimation,
                         onCheckedChange = AppModel::setCoverFlightAnimation,
                         index = 0,
-                        total = 4,
+                        total = motionTotal,
                     )
                     SettingsSwitchItem(
                         title = s.appearance.fluidBackground,
@@ -176,7 +180,7 @@ class AppearanceSettingsScreen(
                         checked = fluidBackground,
                         onCheckedChange = AppModel::setFluidBackground,
                         index = 1,
-                        total = 4,
+                        total = motionTotal,
                     )
                     SettingsSegmentedItem(
                         title = s.appearance.fluidBackgroundFps,
@@ -189,7 +193,17 @@ class AppearanceSettingsScreen(
                         },
                         enabled = fluidBackground,
                         index = 2,
-                        total = 4,
+                        total = motionTotal,
+                    )
+                    SettingsSwitchItem(
+                        title = s.appearance.fluidBackgroundDarkOverlay,
+                        modifier = Modifier.settingsSearchTarget("appearance_fluid_background_dark_overlay", targetSettingId),
+                        subtitle = s.appearance.fluidBackgroundDarkOverlayNote,
+                        checked = fluidBackgroundDarkOverlay,
+                        onCheckedChange = AppModel::setFluidBackgroundDarkOverlay,
+                        enabled = fluidBackground,
+                        index = 3,
+                        total = motionTotal,
                     )
                     SettingsSwitchItem(
                         title = s.appearance.autoHideBottomBar,
@@ -197,9 +211,20 @@ class AppearanceSettingsScreen(
                         subtitle = s.appearance.autoHideBottomBarNote,
                         checked = bottomBarAutoHide,
                         onCheckedChange = AppModel::setBottomBarAutoHide,
-                        index = 3,
-                        total = 4,
+                        index = 4,
+                        total = motionTotal,
                     )
+                    if (isAndroid) {
+                        SettingsSwitchItem(
+                            title = s.appearance.predictiveBack,
+                            modifier = Modifier.settingsSearchTarget("appearance_predictive_back", targetSettingId),
+                            subtitle = s.appearance.predictiveBackNote,
+                            checked = predictiveBackEnabled,
+                            onCheckedChange = AppModel::setPredictiveBackEnabled,
+                            index = 5,
+                            total = motionTotal,
+                        )
+                    }
                 }
 
                 // 3. 内容与列表呈现
@@ -245,6 +270,18 @@ class AppearanceSettingsScreen(
                         )
                     }
                 } else {
+                    val desktopPlayerVolumeVisible by AppModel.desktopPlayerVolumeVisibleFlow.collectAsState()
+                    SettingsSection(s.appearance.desktopPlayerControls) {
+                        SettingsSwitchItem(
+                            title = s.appearance.desktopPlayerVolume,
+                            subtitle = s.appearance.desktopPlayerVolumeNote,
+                            checked = desktopPlayerVolumeVisible,
+                            onCheckedChange = AppModel::setDesktopPlayerVolumeVisible,
+                            modifier = Modifier.settingsSearchTarget("appearance_desktop_player_volume", targetSettingId),
+                            index = 0,
+                            total = 1,
+                        )
+                    }
                     PlayerLyricsPresentationSection(
                         targetSettingId = targetSettingId,
                         onNavigateLyricsPlugin = { navigator.push(AppRoute.LyricsPluginSettings) },
@@ -289,6 +326,10 @@ class AppearanceSettingsScreen(
                         )
                     }
                 }
+
+                if (!isTabletLayout()) {
+                    NavigationSettingsSections(targetSettingId)
+                }
             }
         }
 
@@ -325,12 +366,12 @@ class AppearanceSettingsScreen(
  * 后者是用户显式下载的资产。两者都是磁盘上的音频文件，用户极易混淆，
  * 因此每个清理动作的副标题与确认文案里都写死了这一句。
  */
-class StorageSettingsScreen : Screen {
+class StorageSettingsScreen : RoutePage {
     @Composable
     override fun Content() {
         val navigator = LocalAppNavigator.current
-        // rememberScreenModel 是 Screen 的扩展函数，只能在 Content() 里调用（见 AGENTS.md）。
-        val model = rememberScreenModel { StorageSettingsModel() }
+        // pageModel 是 RoutePage 的扩展函数，只能在 Content() 里调用（见 AGENTS.md）。
+        val model = pageModel { StorageSettingsModel() }
         StorageSettingsContent(
             model = model,
             onBack = { navigator.pop() },
@@ -571,10 +612,8 @@ private fun StorageSettingsContent(
     }
 
     pendingMigratePath?.let { targetPath ->
-        AlertDialog(
+        CpAlertDialog(
             onDismissRequest = { pendingMigratePath = null },
-            containerColor = cpSheetSurface(),
-            shape = MaterialTheme.shapes.extraLarge,
             title = {
                 CpText(
                     s.storage.migrateCacheDirConfirmTitle,

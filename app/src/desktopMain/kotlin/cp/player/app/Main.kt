@@ -18,6 +18,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -38,6 +40,7 @@ import cp.player.app.platform.AppTray
 import cp.player.app.platform.DesktopBackDispatcher
 import cp.player.app.platform.DesktopCloseBehavior
 import cp.player.app.platform.DesktopRenderTuning
+import cp.player.app.platform.DesktopSkiaLifecycle
 import cp.player.app.platform.DesktopTrayState
 import cp.player.app.platform.desktopTraySupported
 import cp.player.app.platform.TaoPrimaryDisplay
@@ -145,6 +148,13 @@ private fun Modifier.windowEdgeHairline(): Modifier = drawWithContent {
     )
 }
 
+private fun Modifier.skiaLifecycleAfterFrame(): Modifier = drawWithContent {
+    drawContent()
+    drawIntoCanvas { canvas ->
+        DesktopSkiaLifecycle.onAfterFrame(canvas.nativeCanvas, hadVisualWork = true)
+    }
+}
+
 /**
  * 窗口装饰固定为 **Tao 自绘标题栏路**，且必须在建窗之前定下来：
  *
@@ -158,20 +168,12 @@ private fun Modifier.windowEdgeHairline(): Modifier = drawWithContent {
  * [WindowDecorChoice] 的三态仍保留，用于日志与历史配置兼容；JBR 路依赖 AWT，
  * Tao 后端下不再提供。
  */
-@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, androidx.compose.ui.InternalComposeUiApi::class)
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 fun main(args: Array<String> = emptyArray()) {
     // ⚠️ 必须是第一句，且在任何 UI 之前：Windows 安装包由 Velopack 打，安装/升级/
     // 卸载时它会用 `--veloapp-*` 参数把本 exe 当钩子拉起并要求 15~30 秒内退出，
     // 超时直接杀掉 ⇒ 安装器报「安装未完成」。见 VelopackHooks.kt。
     exitIfVelopackHook(args)
-
-    // CMP 1.13+ 将图形与文本后端 (PlatformGraphicsRegistry) 解耦为按需注册机制。
-    // 在 Nucleus Tao 原生窗口创建阶段（DecoratedWindow / PainterToRgbaKt.toRgbaIcon）转换窗口图标时，
-    // 若尚未挂载 ComposeScene，PlatformGraphicsRegistry 尚未就绪便会抛出 IllegalStateException。
-    // 在此预先注册 Skiko 实现，确保图形基元（ImageBitmap/Canvas/Paint）在建窗前全局就绪。
-    runCatching {
-        androidx.compose.ui.platform.registerSkikoComposeImplementation()
-    }
 
     // JVM 启动后即刻派发多核并行加载：
     // 1. JNI 原生音频库提前完成动态库查找与 dlopen 加载
@@ -190,11 +192,8 @@ fun main(args: Array<String> = emptyArray()) {
  * @param args 命令行参数（支持 `--mobile` 或 `-m` 进入手机版界面预览）
  * @param isMobilePreview 显式指定是否开启手机版界面预览模式
  */
-@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, androidx.compose.ui.InternalComposeUiApi::class)
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 fun runDesktopApp(args: Array<String> = emptyArray(), isMobilePreview: Boolean = false) {
-    runCatching {
-        androidx.compose.ui.platform.registerSkikoComposeImplementation()
-    }
     val mobilePreview = isMobilePreview ||
         System.getProperty("cp.player.mobilePreview") == "true" ||
         args.contains("--mobile") ||
@@ -266,6 +265,7 @@ fun runDesktopApp(args: Array<String> = emptyArray(), isMobilePreview: Boolean =
                 runCatching { w.toFront() }
             }
             DesktopShell.isWindowHidden = false
+            DesktopSkiaLifecycle.onRestoreFromTray(nucleusWindow = windowRef.value)
         }
 
         // 隐藏到托盘。⚠️ 没有托盘实现时必须**退回真退出** —— 否则窗口藏了、又没有图标能
@@ -276,20 +276,10 @@ fun runDesktopApp(args: Array<String> = emptyArray(), isMobilePreview: Boolean =
                 // 不可见、渲染循环还在按 VSync 空转。顺序反过来会多出若干帧的空转。
                 DesktopShell.isWindowHidden = true
                 windowRef.value?.let { w ->
-                    // 先最小化、再 hide()。
-                    //
-                    // 依据：Tao 的 `hide()` 只调 `nativeSetVisible(false)`，而 Nucleus
-                    // `TaoComposeSceneHost.isOutOfSight()` 只看
-                    // `TaoWindow.isMinimized || occluded` ⇒ 单纯 `hide()` 之后
-                    // `renderFrameSuspending` 不会提前返回，仍会整帧渲染；
-                    // `onMinimizedChanged(true)` 里的 `purgeGpuResourceCacheAtRest()`
-                    // 也不会被调用。补一次 `setMinimized(true)` 才进入这条早退分支。
-                    //
-                    // ⚠️ 最终的可视状态（任务栏是否残留图标）需要实机核对；
-                    // 若出现「最小化到托盘却还在任务栏」就调换这两行顺序再测。
                     runCatching { w.setMinimized(true) }
                     runCatching { w.hide() }
                 }
+                DesktopSkiaLifecycle.onMinimizeToTray(nucleusWindow = windowRef.value)
             } else {
                 println("[CPPlayer] 本机没有系统托盘，无法最小化到托盘，改为退出")
                 exitApplication()
@@ -465,6 +455,7 @@ fun runDesktopApp(args: Array<String> = emptyArray(), isMobilePreview: Boolean =
             LaunchedEffect(nucleusWindow) {
                 windowRef.value = nucleusWindow
                 WindowsSmtcControls.primaryWindowHandle = taoWindow.nativeHandle
+                DesktopSkiaLifecycle.attachWindow(taoWindow, nucleusWindow)
             }
 
             if (isMiniMode) {
@@ -480,11 +471,12 @@ fun runDesktopApp(args: Array<String> = emptyArray(), isMobilePreview: Boolean =
                             }
                         },
                         onClose = requestClose,
+                        modifier = Modifier.skiaLifecycleAfterFrame(),
                     )
                 }
             } else {
                 androidx.compose.foundation.layout.Column(
-                    androidx.compose.ui.Modifier.fillMaxSize().windowEdgeHairline(),
+                    androidx.compose.ui.Modifier.fillMaxSize().windowEdgeHairline().skiaLifecycleAfterFrame(),
                 ) {
                     if (isMobileMode) {
                         cp.player.app.ui.component.MobilePreviewTitleBar(
@@ -557,6 +549,9 @@ fun runDesktopApp(args: Array<String> = emptyArray(), isMobilePreview: Boolean =
                                 },
                                 showMessages = showMessages,
                                 showDynamic = showDynamic,
+                                // 平板 / 中等宽度下设置入口在左侧 rail 里（由 MainScreen 发布），
+                                // 标题栏让出槽位 —— 两颗齿轮同屏就是「同名两落点」。
+                                showSettings = !DesktopShell.settingsInRail,
                                 onOpenDynamic = {
                                     navigator.popToMainShell()
                                     DesktopShell.dynamicRequested = true

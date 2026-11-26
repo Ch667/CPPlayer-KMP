@@ -14,6 +14,7 @@ import cp.player.core.util.defaultSettingsStorage
 interface BackendProvider {
     /** Typed session factory. A missing factory is an error, never a legacy fallback. */
     fun createSdkProvider(context: cp.player.sdk.ProviderContext): cp.player.sdk.MusicProvider? = null
+    val requiresExclusiveNativeLibrary: Boolean get() = false
     val sdkAllowedOrigins: Set<String> get() = emptySet()
     fun onSdkSessionRetired(listener: () -> Unit): () -> Unit = {}
     /** Provider 唯一标识符（如 "netease"、"my-custom"） */
@@ -83,6 +84,9 @@ interface BackendProvider {
      * null 时表示未声明，按宿主默认原生音质处理。
      */
     val qualityOptions: List<ProviderQualityOption>? get() = null
+
+    /** 可选的多档封面尺寸规则（来自模块 manifest 声明）。 */
+    val imageResizeRule: ProviderImageResizeRule? get() = null
 
     /**
      * 将原生目标音质解析为发往当前音源的实际参数 key。

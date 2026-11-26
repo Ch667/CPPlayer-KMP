@@ -28,7 +28,6 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.AnimatedVisibility
@@ -46,9 +45,11 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalToggleButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -59,6 +60,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.contentColorFor
 import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -74,6 +77,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -225,34 +229,34 @@ fun SettingsNote(
 
     val style = when (emphasis) {
         SettingsNoteEmphasis.ERROR -> NoteStyle(
-            container = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
+            container = MaterialTheme.colorScheme.errorContainer,
             content = MaterialTheme.colorScheme.onErrorContainer,
             icon = Icons.Filled.Warning,
             iconTint = MaterialTheme.colorScheme.onErrorContainer,
         )
         SettingsNoteEmphasis.WARNING -> NoteStyle(
-            container = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f),
+            container = MaterialTheme.colorScheme.tertiaryContainer,
             content = MaterialTheme.colorScheme.onTertiaryContainer,
             icon = Icons.Filled.Warning,
             iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
         )
         SettingsNoteEmphasis.SUCCESS -> NoteStyle(
-            container = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+            container = MaterialTheme.colorScheme.primaryContainer,
             content = MaterialTheme.colorScheme.onPrimaryContainer,
             icon = Icons.Filled.Check,
-            iconTint = MaterialTheme.colorScheme.primary,
+            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
         )
         SettingsNoteEmphasis.TIP -> NoteStyle(
-            container = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
+            container = MaterialTheme.colorScheme.secondaryContainer,
             content = MaterialTheme.colorScheme.onSecondaryContainer,
             icon = Icons.Default.Info,
-            iconTint = MaterialTheme.colorScheme.secondary,
+            iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
         )
         SettingsNoteEmphasis.INFO -> NoteStyle(
             container = cpNestedSurface(),
             content = MaterialTheme.colorScheme.onSurfaceVariant,
             icon = Icons.Default.Info,
-            iconTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
+            iconTint = MaterialTheme.colorScheme.primary,
         )
     }
 
@@ -348,34 +352,34 @@ fun SettingsNoteGroup(
 
     val style = when (emphasis) {
         SettingsNoteEmphasis.ERROR -> NoteStyle(
-            container = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
+            container = MaterialTheme.colorScheme.errorContainer,
             content = MaterialTheme.colorScheme.onErrorContainer,
             icon = Icons.Filled.Warning,
             iconTint = MaterialTheme.colorScheme.onErrorContainer,
         )
         SettingsNoteEmphasis.WARNING -> NoteStyle(
-            container = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f),
+            container = MaterialTheme.colorScheme.tertiaryContainer,
             content = MaterialTheme.colorScheme.onTertiaryContainer,
             icon = Icons.Filled.Warning,
             iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
         )
         SettingsNoteEmphasis.SUCCESS -> NoteStyle(
-            container = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+            container = MaterialTheme.colorScheme.primaryContainer,
             content = MaterialTheme.colorScheme.onPrimaryContainer,
             icon = Icons.Filled.Check,
-            iconTint = MaterialTheme.colorScheme.primary,
+            iconTint = MaterialTheme.colorScheme.onPrimaryContainer,
         )
         SettingsNoteEmphasis.TIP -> NoteStyle(
-            container = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
+            container = MaterialTheme.colorScheme.secondaryContainer,
             content = MaterialTheme.colorScheme.onSecondaryContainer,
             icon = Icons.Default.Info,
-            iconTint = MaterialTheme.colorScheme.secondary,
+            iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
         )
         SettingsNoteEmphasis.INFO -> NoteStyle(
             container = cpNestedSurface(),
             content = MaterialTheme.colorScheme.onSurfaceVariant,
             icon = Icons.Default.Info,
-            iconTint = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
+            iconTint = MaterialTheme.colorScheme.primary,
         )
     }
 
@@ -480,7 +484,7 @@ fun CpInlineHelp(
         Icon(
             imageVector = Icons.Default.Info,
             contentDescription = title,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(CpIconSize.inline),
         )
     }
@@ -740,11 +744,7 @@ fun SettingsClickItem(
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
-                tint = if (highlight) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                },
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp),
             )
         }
@@ -934,6 +934,7 @@ fun SettingsSegmentedItem(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun SegmentedControl(
     options: List<String>,
@@ -941,64 +942,36 @@ private fun SegmentedControl(
     enabled: Boolean,
     onSelect: (Int) -> Unit,
 ) {
-    // 圆角同心：**内块圆角 = 外框圆角 − 内边距**。
-    //
-    // 外框取 `shapes.medium`(12dp)、内边距 3dp ⇒ 内块 9dp。
-    // ⚠️ 不要"顺手"把内块改成 `shapes.small`(8dp)：那会破坏同心，内外曲率不平行时
-    // 肉眼能看出内块四角"贴不齐"外框 —— 这正是这里用 9dp 而不是某个 token 的原因。
-    val trackRadius = 12.dp
-    val trackPadding = 3.dp
-    val outerShape = MaterialTheme.shapes.medium
-    val optionShape = RoundedCornerShape(trackRadius - trackPadding)
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            // ⚠️ 这里**没有** `padding(top = …)`：分段条现在由 `SettingsSegmentedItem`
-            // 放在标题下方（单独的 Column 行），行间距由宿主给的 `spacedBy(2.dp)` 负责。
-            // 曾经它是标题右侧的行内元素，靠 10dp 顶边距与标题拉开距离 —— 那个布局已废弃。
-            .clip(outerShape)
-            .background(cp.player.app.ui.theme.cpNestedSurface())
-            .padding(trackPadding)
+            .padding(top = 6.dp)
             .selectableGroup(),
-        horizontalArrangement = Arrangement.spacedBy(trackPadding),
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
     ) {
-        val isDark = LocalIsDarkTheme.current
         options.forEachIndexed { optionIndex, label ->
             val selected = optionIndex == selectedIndex
-            val interactionSource = remember { MutableInteractionSource() }
-            val selectedBg = if (isDark) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            }
-            Surface(
-                shape = optionShape,
-                color = if (selected) selectedBg else Color.Transparent,
-                contentColor = if (selected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+            ToggleButton(
+                checked = selected,
+                onCheckedChange = { onSelect(optionIndex) },
+                enabled = enabled,
+                shapes = when (optionIndex) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
                 },
-                shadowElevation = if (selected && !isDark) 1.5.dp else 0.dp,
+                colors = FilledTonalToggleButtonDefaults.colors(),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 9.dp),
                 modifier = Modifier
                     .weight(1f)
-                    .clip(optionShape)
-                    .selectable(
-                        selected = selected,
-                        interactionSource = interactionSource,
-                        indication = LocalIndication.current,
-                        enabled = enabled,
-                        role = Role.RadioButton,
-                        onClick = { onSelect(optionIndex) },
-                    ),
+                    .semantics { role = Role.RadioButton },
             ) {
                 CpText(
                     text = label,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 9.dp),
+                    maxLines = 1,
                 )
             }
         }
@@ -1121,7 +1094,7 @@ fun SettingsDropdownItem(
             Icon(
                 imageVector = Icons.Filled.ArrowDropDown,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
     )
@@ -1315,7 +1288,16 @@ fun SettingsButtonItem(
     enabled: Boolean = true,
 ) {
     val finalContainer = if (containerColor == Color.Unspecified) settingsRowContainer() else containerColor
-    val finalContent = if (contentColor == Color.Unspecified) MaterialTheme.colorScheme.onSurface else contentColor
+    val finalContent = when {
+        contentColor != Color.Unspecified -> contentColor
+        containerColor == Color.Unspecified -> MaterialTheme.colorScheme.onSurface
+        else -> contentColorFor(finalContainer).takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface
+    }
+    val subtitleColor = if (contentColor == Color.Unspecified && containerColor == Color.Unspecified) {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    } else {
+        finalContent
+    }
     LegacyListItem(
         index = index,
         total = total,
@@ -1324,7 +1306,7 @@ fun SettingsButtonItem(
         containerColor = finalContainer,
         leadingContent = icon?.let { img -> { SettingsLeadingIcon(img, finalContent) } },
         headlineContent = { RowTitle(text, finalContent) },
-        supportingContent = subtitle?.let { sub -> { RowSubtitle(sub, finalContent) } },
+        supportingContent = subtitle?.let { sub -> { RowSubtitle(sub, subtitleColor) } },
     )
 }
 
@@ -1385,7 +1367,7 @@ fun SettingsConfirmItem(
     }
 
     if (showDialog) {
-        AlertDialog(
+        CpAlertDialog(
             onDismissRequest = { showDialog = false },
             title = { CpText(confirmTitle) },
             // 确认框正文经常是「删多少 / 迁到哪个目录 / 会发生什么」这类**必须读完才能
@@ -1667,61 +1649,13 @@ fun SettingsSearchBar(
     placeholder: String,
     modifier: Modifier = Modifier,
 ) {
-    val strings = cpStrings()
-    Surface(
-        shape = MaterialTheme.shapes.extraLarge,
-        color = cpCardSurface(),
-        modifier = modifier
-            .fillMaxWidth()
-            .height(48.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Search,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
-            Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                if (query.isEmpty()) {
-                    CpText(
-                        text = placeholder,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                BasicTextField(
-                    value = query,
-                    onValueChange = onQueryChange,
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            if (query.isNotEmpty()) {
-                IconButton(
-                    onClick = { onQueryChange("") },
-                    modifier = Modifier.size(28.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Close,
-                        contentDescription = strings.common.clearSearch,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-        }
-    }
+    CpSearchField(
+        query = query,
+        onQueryChange = onQueryChange,
+        onSubmit = {},
+        placeholder = placeholder,
+        textStyle = MaterialTheme.typography.bodyMedium,
+        height = 48.dp,
+        modifier = modifier.fillMaxWidth(),
+    )
 }

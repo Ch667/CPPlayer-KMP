@@ -7,14 +7,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.screen.Screen
+import cp.player.app.ui.navigation.RoutePage
 import cp.player.app.i18n.cpStrings
 import cp.player.app.presentation.navigation.AppRoute
 import cp.player.app.ui.component.CpAdaptiveListDetailScaffold
@@ -32,6 +34,7 @@ import cp.player.app.ui.component.SettingsSearchBar
 import cp.player.app.ui.component.SettingsSection
 import cp.player.app.ui.component.settingsRowContainer
 import cp.player.app.ui.theme.cpNestedSurface
+import cp.player.app.platform.isAndroidPlatform
 import cp.player.app.ui.component.CpText
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.navigation.rememberListDetailPaneScaffoldNavigator
@@ -39,7 +42,7 @@ import androidx.compose.material3.adaptive.navigation.rememberListDetailPaneScaf
 /**
  * 设置根页面。
  */
-class SettingsScreen(private val embedded: Boolean = false) : Screen {
+class SettingsScreen(private val embedded: Boolean = false) : RoutePage {
     @Composable
     override fun Content() {
         SettingsScreenContent(embedded = embedded)
@@ -51,6 +54,7 @@ class SettingsScreen(private val embedded: Boolean = false) : Screen {
 private fun SettingsScreenContent(embedded: Boolean = false) {
     val navigator = LocalAppNavigator.current
     val strings = cpStrings()
+    val isTablet = cp.player.app.ui.component.isTabletLayout()
     val entries = remember { settingsEntries() }
     var searchQuery by remember { mutableStateOf("") }
     var targetRequestKey by remember { mutableStateOf(0L) }
@@ -58,7 +62,16 @@ private fun SettingsScreenContent(embedded: Boolean = false) {
     var selectedTargetId by remember { mutableStateOf<String?>(null) }
     val adaptiveNavigator = rememberListDetailPaneScaffoldNavigator<Unit>()
 
-    val searchResults = remember(searchQuery, entries, strings) {
+    // 安卓端进入设置页时，系统会把初始焦点交给页内第一个可聚焦节点 —— 恰好是顶部搜索框，
+    // 于是软键盘一进页面就弹出来。这里在挂载后主动清掉焦点，输入法随之收起；
+    // 桌面端没有软键盘，也不存在这种自动聚焦，保持原样。
+    // 与 SearchScreen 的策略一致：安卓不自动聚焦输入框，用户要点一下才打字。
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(Unit) {
+        if (isAndroidPlatform()) focusManager.clearFocus()
+    }
+
+    val searchResults = remember(searchQuery, entries, strings, isTablet) {
         val q = searchQuery.trim().lowercase()
         if (q.isEmpty()) emptyList()
         else {
@@ -67,7 +80,7 @@ private fun SettingsScreenContent(embedded: Boolean = false) {
 
             // 1. 优先搜索所有具体设置子项 (SubItemMatch)
             entries.forEach { entry ->
-                entry.visibleSubItems().forEach { subItem ->
+                entry.visibleSubItems(isTablet).forEach { subItem ->
                     val title = subItem.titleOf(strings).lowercase()
                     val subtitle = subItem.subtitleOf?.invoke(strings)?.lowercase().orEmpty()
                     val section = subItem.sectionOf?.invoke(strings)?.lowercase().orEmpty()

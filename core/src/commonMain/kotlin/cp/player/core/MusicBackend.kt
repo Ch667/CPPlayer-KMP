@@ -131,6 +131,7 @@ class MusicBackend private constructor(
     private val providerManager: ProviderManager,
     private val moduleManager: ModuleManager,
     private val applicationVersionName: String?,
+    lyricPusherFactory: (() -> cp.player.core.lyricpush.LyricPusher)?,
 ) {
 
     /** 模块内可见：供兼容层转发。 */
@@ -197,15 +198,23 @@ class MusicBackend private constructor(
 
     private fun sdkAccountNamespace(): String {
         val provider = activeProvider()
+        return sdkAccountNamespaceFor(provider?.id.orEmpty(), provider)
+    }
+
+    private fun sdkAccountNamespaceFor(
+        providerId: String,
+        resolvedProvider: BackendProvider? = activeProvider()?.takeIf { it.id == providerId }
+            ?: providerId.takeIf { it.isNotBlank() && it != "local" }?.let(moduleManager::getProvider),
+    ): String {
+        if (providerId == "local") return ""
         val account = providerManager.sdkSessions.selectedAccountId
         return cp.player.core.util.cacheKey(
-            providerId = provider?.id.orEmpty(), method = "stream", params = emptyMap(),
-            cookie = provider?.let { providerManager.cookieStorage.getCookie(it.id, account) },
-            providerConfig = provider?.getCustomSettings().orEmpty() + mapOf(
+            providerId = providerId,
+            method = "stream",
+            params = emptyMap(),
+            cookie = providerId.takeIf { it.isNotBlank() }?.let { providerManager.cookieStorage.getCookie(it, account) },
+            providerConfig = resolvedProvider?.getCustomSettings().orEmpty() + mapOf(
                 "__sdkAccount" to account,
-                "__sdkCredentialEpoch" to (provider?.let {
-                    providerManager.cookieStorage.revision(it.id, account)
-                } ?: 0).toString(),
             ),
         )
     }
@@ -350,6 +359,7 @@ class MusicBackend private constructor(
             // 只有用户在设置页显式打开后才会对外写数据。
             lyricPusher = lyricPusherLazy.value,
             cacheNamespace = { sdkAccountNamespace() },
+            cacheNamespaceForProvider = { providerId -> sdkAccountNamespaceFor(providerId) },
             downloadedFileResolver = { mediaId ->
                 val identity = cp.player.core.music.CPMediaId.parseOrNull(mediaId)
                 downloadManager.tasksFlow.value.firstOrNull {
@@ -443,8 +453,7 @@ class MusicBackend private constructor(
      * 惰性创建：桌面返回空实现，Android 构造各渠道 bridge（构造本身无副作用，
      * 真正对外写数据要等 [applyLyricPushConfig] 把开关打开）。
      */
-    private val lyricPusherLazy: kotlin.Lazy<cp.player.core.lyricpush.LyricPusher> =
-        kotlin.lazy { cp.player.core.lyricpush.createLyricPusher(context) }
+    private val lyricPusherLazy = lazy { lyricPusherFactory?.invoke() }
 
     /**
      * 应用歌词投放配置（设置页改动 / 启动恢复）。
@@ -453,7 +462,7 @@ class MusicBackend private constructor(
      * 与 [applyOutputConfig] 的分工一致。
      */
     fun applyLyricPushConfig(config: LyricPushConfig) {
-        runCatching { lyricPusherLazy.value.applyConfig(config) }
+        runCatching { lyricPusherLazy.value?.applyConfig(config) }
     }
 
     /**
@@ -871,7 +880,27 @@ class MusicBackend private constructor(
     /** Exact capabilities of the current SDK session, without manifest UI aliases. */
     suspend fun activeSdkCapabilities(): List<String>? = providerManager.sdkSessions.current()?.capabilities()?.supported
 
-    /** Provider 名称（UI 标题用，无活跃时返回占位串）。 */
+    /** Confirm a replacement credential in a separate SDK session before making it active. */
+    suspend fun verifyProviderCredential(providerId: String, credential: String): BackendResult<cp.player.sdk.AccountSession> =
+        try {
+            BackendResult.Success(providerManager.sdkSessions.verifyCredential(providerId, credential))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: cp.player.sdk.ProviderException) {
+            if (e.failure.category == cp.player.sdk.FailureCategory.UNSUPPORTED) BackendResult.Unsupported(e.failure.message)
+            else BackendResult.Error("Provider ${e.failure.category}", cause = e)
+        } catch (e: LinkageError) {
+            BackendResult.Error("Provider native library error", cause = e)
+        } catch (e: Exception) {
+            BackendResult.Error("Provider credential check failed", cause = e)
+        }
+
+    /** 主动裁剪当前 SDK 会话 Host 中的非热点读缓存，配合托盘/低内存收缩。 */
+    fun trimProviderHostCaches() {
+        providerManager.sdkSessions.trimHostCaches()
+    }
+
+    /** 活跃 Provider 名称（UI 标题用，无活跃时返回占位串）。 */
     fun activeProviderName(): String = providerManager.getCurrentProviderName()
 
     /** Provider 唯一 ID（设置持久化用，无活跃时返回 "default"）。 */
@@ -990,6 +1019,29 @@ class MusicBackend private constructor(
         return switchProvider(provider)
     }
 
+    /** 尝试激活任意一个已加载且就绪的音源（供错误恢复页重试用）。 */
+    fun retryActivation(): BackendResult<Unit> {
+        val current = providerManager.currentProvider
+        if (current != null && current.isReady()) {
+            _stateFlow.value = BackendState.Ready(current)
+            return BackendResult.Success(Unit)
+        }
+        val candidates = moduleManager.getAvailableProviders().filter { it.isReady() }
+        if (candidates.isEmpty()) {
+            val all = moduleManager.getAvailableProviders()
+            if (all.isEmpty()) {
+                _stateFlow.value = BackendState.NoProvider
+                return BackendResult.Success(Unit)
+            }
+            val msg = extractProviderError(all.first()) ?: "所有 Provider 都未就绪"
+            _stateFlow.value = BackendState.Error(msg)
+            return BackendResult.Error(msg)
+        }
+        val preferredId = providerManager.getLastActiveProviderId()
+        val target = candidates.firstOrNull { it.id == preferredId } ?: candidates.first()
+        return switchProviderInternal(target, save = true)
+    }
+
     /**
      * 删除 Provider 模块。
      * 若删除的是当前活跃 Provider，会尝试切换到剩余的第一个；
@@ -1002,10 +1054,18 @@ class MusicBackend private constructor(
         val remaining = moduleManager.getAvailableProviders()
         if (deletingActive || remaining.isEmpty()) {
             if (remaining.isEmpty()) {
-                providerManager.switchProvider(null, context, save = false)
+                providerManager.switchProvider(null, context, save = true)
                 _stateFlow.value = BackendState.NoProvider
             } else {
-                switchProviderInternal(remaining.first(), save = true)
+                val fallback = remaining.firstOrNull { it.isReady() } ?: remaining.first()
+                val switched = switchProviderInternal(fallback, save = true)
+                if (switched !is BackendResult.Success) {
+                    // 被删的旧音源已被关闭，不能让 currentProvider 继续悬空指向它。
+                    providerManager.switchProvider(null, context, save = false)
+                    _stateFlow.value = BackendState.Error(
+                        (switched as? BackendResult.Error)?.message ?: "剩余音源均未就绪",
+                    )
+                }
             }
         }
         return BackendResult.Success(Unit)
@@ -1060,7 +1120,7 @@ class MusicBackend private constructor(
         if (lrclibClientLazy.isInitialized()) runCatching { lrclibClientLazy.value.close() }
         // 歌词投放：true 时会解除渠道注册（词幕 unregister / SuperLyric 反注册 /
         // 收起超级岛与实时活动）。未装配过就不碰，避免反向触发惰性创建。
-        if (lyricPusherLazy.isInitialized()) runCatching { lyricPusherLazy.value.close() }
+        if (lyricPusherLazy.isInitialized()) runCatching { lyricPusherLazy.value?.close() }
         // 仅在已装配时关闭下载引擎（避免 reset 反向触发惰性初始化）
         if (downloadManagerLazy.isInitialized()) {
             runCatching { downloadManager.shutdown() }
@@ -1076,11 +1136,17 @@ class MusicBackend private constructor(
     // ============ 内部 ============
 
     private fun switchProviderInternal(provider: BackendProvider, save: Boolean): BackendResult<Unit> {
+        val previousReady = providerManager.currentProvider?.takeIf { it !== provider && it.isReady() }
         return try {
             val ok = providerManager.switchProvider(provider, context, save = save)
             if (!ok) {
                 val msg = providerManager.lastSwitchError ?: extractProviderError(provider) ?: "Provider 切换失败"
-                _stateFlow.value = BackendState.Error(msg)
+                if (previousReady != null) {
+                    // Ready(old) -> switchProvider 失败保持 Ready(old) 不变，避免整页跳死到 BackendErrorScreen。
+                    _stateFlow.value = BackendState.Ready(previousReady)
+                } else {
+                    _stateFlow.value = BackendState.Error(msg)
+                }
                 return BackendResult.Error(msg)
             }
             if (provider.isReady()) {
@@ -1088,12 +1154,22 @@ class MusicBackend private constructor(
                 BackendResult.Success(Unit)
             } else {
                 val msg = extractProviderError(provider) ?: "Provider 服务启动失败"
-                _stateFlow.value = BackendState.Error(msg)
+                if (previousReady != null) {
+                    providerManager.switchProvider(previousReady, context, save = false)
+                    _stateFlow.value = BackendState.Ready(previousReady)
+                } else {
+                    _stateFlow.value = BackendState.Error(msg)
+                }
                 BackendResult.Error(msg)
             }
         } catch (e: Throwable) {
-            _stateFlow.value = BackendState.Error("切换 Provider 失败: ${e.message}")
-            BackendResult.Error("切换 Provider 失败: ${e.message}", cause = e)
+            val msg = "切换 Provider 失败: ${e.message}"
+            if (previousReady != null) {
+                _stateFlow.value = BackendState.Ready(previousReady)
+            } else {
+                _stateFlow.value = BackendState.Error(msg)
+            }
+            BackendResult.Error(msg, cause = e)
         }
     }
 
@@ -1130,6 +1206,7 @@ class MusicBackend private constructor(
             context: PlatformContext,
             settings: SettingsStorage,
             applicationVersionName: String? = null,
+            lyricPusherFactory: (() -> cp.player.core.lyricpush.LyricPusher)? = null,
         ): MusicBackend {
             synchronized(COMPA) {
                 INSTANCE?.let { return it }
@@ -1145,6 +1222,7 @@ class MusicBackend private constructor(
                     providerManager = providerManager,
                     moduleManager = moduleManager,
                     applicationVersionName = applicationVersionName,
+                    lyricPusherFactory = lyricPusherFactory,
                 )
                 backend._stateFlow.value = BackendState.Initializing
 

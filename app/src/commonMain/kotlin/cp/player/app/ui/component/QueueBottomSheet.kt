@@ -27,9 +27,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowForwardIos
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.DragIndicator
@@ -77,7 +75,7 @@ import cp.player.app.platform.shareText
 import cp.player.app.ui.component.LazyScrollColumn
 import cp.player.app.ui.theme.CpMotion
 import cp.player.app.ui.theme.LocalIsDarkTheme
-import cp.player.app.ui.util.resized
+import cp.player.app.ui.util.rememberCoverImageRequest
 import cp.player.core.music.CPMediaId
 import cp.player.core.music.TrackSummary
 import cp.player.core.playback.QueueItem
@@ -101,7 +99,6 @@ fun QueueBottomSheet(
     onMove: (Int, Int) -> Unit,
     onClear: () -> Unit,
     onClose: () -> Unit,
-    onOpenSimilar: (() -> Unit)? = null,
     shuffleEnabled: Boolean = false,
     repeatMode: RepeatMode = RepeatMode.OFF,
     onShuffle: (() -> Unit)? = null,
@@ -118,7 +115,6 @@ fun QueueBottomSheet(
             onMove = onMove,
             onClear = onClear,
             onClose = onClose,
-            onOpenSimilar = onOpenSimilar,
             shuffleEnabled = shuffleEnabled,
             repeatMode = repeatMode,
             onShuffle = onShuffle,
@@ -142,7 +138,6 @@ fun QueueContent(
     onMove: (Int, Int) -> Unit,
     onClear: () -> Unit,
     onClose: (() -> Unit)? = null,
-    onOpenSimilar: (() -> Unit)? = null,
     shuffleEnabled: Boolean = false,
     repeatMode: RepeatMode = RepeatMode.OFF,
     onShuffle: (() -> Unit)? = null,
@@ -366,48 +361,6 @@ fun QueueContent(
                         modifier = Modifier.animateItem(),
                     )
                 }
-
-                if (onOpenSimilar != null) {
-                    item {
-                        androidx.compose.material3.Surface(
-                            onClick = onOpenSimilar,
-                            shape = MaterialTheme.shapes.large,
-                            color = cpSheetInnerSurface(),
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        ) {
-                            Row(
-                                Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                Icon(
-                                    Icons.Rounded.AutoAwesome,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                                Column(Modifier.weight(1f)) {
-                                    CpText(
-                                        s.player.exploreSimilar,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                    CpText(
-                                        s.player.exploreSimilarNote,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                Icon(
-                                    Icons.AutoMirrored.Rounded.ArrowForwardIos,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(14.dp),
-                                )
-                            }
-                        }
-                    }
-                }
             }
 
         }
@@ -594,7 +547,6 @@ private fun QueueFloatingToolbar(content: @Composable RowScope.() -> Unit) {
     Surface(
         shape = CircleShape,
         color = cpSheetInnerSurface(),
-        tonalElevation = 3.dp,
         shadowElevation = 6.dp,
     ) {
         Row(
@@ -808,9 +760,8 @@ private fun QueueRow(
                 ) {
                 Box(Modifier.size(48.dp).aspectRatio(1f)) {
                     if (!item.coverUrl.isNullOrBlank()) {
-                        // [Bolt] Fetch smaller (150px) cover images for the queue list to reduce loading time
                         AsyncImage(
-                            model = item.coverUrl.resized(150),
+                            model = rememberCoverImageRequest(item.coverUrl, targetSizeDp = 48.dp),
                             contentDescription = s.player.coverContentDescription,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()

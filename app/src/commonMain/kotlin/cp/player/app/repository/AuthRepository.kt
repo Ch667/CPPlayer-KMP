@@ -4,6 +4,8 @@ import cp.player.core.BackendResult
 import cp.player.core.music.UnifiedMusicSource
 import cp.player.sdk.AuthAction
 import cp.player.sdk.AuthActionRequest
+import cp.player.sdk.FailureCategory
+import cp.player.sdk.ProviderException
 import cp.player.sdk.AuthActionResult as ProviderAuthResult
 
 data class QrKeyResult(
@@ -20,12 +22,14 @@ enum class QrStatusKind {
     SCANNED,
     SUCCESS,
     EXPIRED,
+    FAILED,
     UNKNOWN,
 }
 
 data class QrStatusResult(
     val status: QrStatusKind,
     val cookie: String?,
+    val reason: String? = null,
 )
 
 data class AuthActionResult(
@@ -42,6 +46,20 @@ data class CaptchaImageResult(
     val sessionCookie: String?,
 )
 
+sealed interface LoginSessionCheck {
+    data object LoggedIn : LoginSessionCheck
+    data object LoggedOut : LoginSessionCheck
+    data object NetworkError : LoginSessionCheck
+    data object Unavailable : LoginSessionCheck
+}
+
+internal fun BackendResult.Error.toLoginSessionCheck(): LoginSessionCheck =
+    when ((cause as? ProviderException)?.failure?.category) {
+        FailureCategory.AUTHENTICATION -> LoginSessionCheck.LoggedOut
+        FailureCategory.NETWORK, FailureCategory.TIMEOUT, FailureCategory.RATE_LIMIT -> LoginSessionCheck.NetworkError
+        else -> LoginSessionCheck.Unavailable
+    }
+
 /**
  * 强类型认证仓库（面向 UI 层）。
  *
@@ -55,9 +73,12 @@ class AuthRepository(
     private val defaultCountryCode: String? = null,
 ) {
 
-    suspend fun getLoginStatus(): Boolean = when (val result = source?.getCurrentAccount()) {
-        is BackendResult.Success -> result.data.loggedIn
-        is BackendResult.Error, is BackendResult.Unsupported, null -> false
+    suspend fun getLoginStatus(): Boolean = checkLoginSession() == LoginSessionCheck.LoggedIn
+
+    suspend fun checkLoginSession(): LoginSessionCheck = when (val result = source?.getCurrentAccount()) {
+        is BackendResult.Success -> if (result.data.loggedIn) LoginSessionCheck.LoggedIn else LoginSessionCheck.LoggedOut
+        is BackendResult.Error -> result.toLoginSessionCheck()
+        is BackendResult.Unsupported, null -> LoginSessionCheck.Unavailable
     }
 
     suspend fun getQrKey(): QrKeyResult {
@@ -70,9 +91,12 @@ class AuthRepository(
         return QrCodeResult(url = result?.url, imageBase64 = result?.imageBase64)
     }
 
-    suspend fun checkQrStatus(key: String): QrStatusResult {
+    suspend fun checkQrStatus(key: String): QrStatusResult? {
         val result = authenticate(AuthActionRequest(action = AuthAction.QR_CHECK, key = key, md5 = false))
-        return QrStatusResult(qrStatusOf(result), result?.cookie)
+            ?: return null
+        val code = result.status ?: result.code
+        if (!result.success && (code == 408 || code == 429 || (code != null && code in 500..599))) return null
+        return QrStatusResult(qrStatusOf(result), result.cookie, result.message)
     }
 
     suspend fun login(email: String, password: String): AuthActionResult =
@@ -157,7 +181,7 @@ class AuthRepository(
     private fun toActionResult(result: ProviderAuthResult?): AuthActionResult {
         if (result == null) return AuthActionResult(ok = false, reason = "当前音源不支持该登录方式")
         return AuthActionResult(
-            ok = result.success,
+            ok = result.success && !result.challenge,
             cookie = result.cookie,
             verifyUrl = result.verifyUrl,
             isVerificationChallenge = result.challenge,
@@ -166,15 +190,15 @@ class AuthRepository(
     }
 
     /** 二维码状态：优先看 `status`（上游 800/801/802/803），没有再退回 `code`。 */
-    private fun qrStatusOf(result: ProviderAuthResult?): QrStatusKind {
-        if (result == null) return QrStatusKind.UNKNOWN
-        if (result.cookie?.isNotBlank() == true && result.success) return QrStatusKind.SUCCESS
+    private fun qrStatusOf(result: ProviderAuthResult): QrStatusKind {
+        val complete = result.success && !result.challenge && !result.cookie.isNullOrBlank()
         return when (result.status ?: result.code) {
-            803, 2, 4 -> QrStatusKind.SUCCESS
             802, 1 -> QrStatusKind.SCANNED
             800, 3 -> QrStatusKind.EXPIRED
             801, 0 -> QrStatusKind.WAITING
-            else -> if (result.success) QrStatusKind.SUCCESS else QrStatusKind.UNKNOWN
+            803, 2, 4 -> if (complete) QrStatusKind.SUCCESS else QrStatusKind.FAILED
+            in 400..499 -> QrStatusKind.FAILED
+            else -> if (complete) QrStatusKind.SUCCESS else QrStatusKind.UNKNOWN
         }
     }
 

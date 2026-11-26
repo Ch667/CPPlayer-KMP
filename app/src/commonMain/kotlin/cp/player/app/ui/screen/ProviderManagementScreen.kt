@@ -34,10 +34,8 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import cp.player.app.ui.component.CpConnectedChoice
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -53,10 +51,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.model.ScreenModel
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.model.screenModelScope
-import cafe.adriel.voyager.core.screen.Screen
+import androidx.lifecycle.ViewModel
+import cp.player.app.ui.navigation.pageModel
+import androidx.lifecycle.viewModelScope
+import cp.player.app.ui.navigation.RoutePage
 import cp.player.app.AppModel
 import cp.player.app.i18n.ProviderManagementStrings
 import cp.player.app.i18n.cpStrings
@@ -99,7 +97,7 @@ import kotlinx.coroutines.launch
  */
 class ProviderManagementScreen(
     private val initialTab: Int = 0,
-) : Screen {
+) : RoutePage {
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
@@ -112,7 +110,7 @@ class ProviderManagementScreen(
 
         var selectedTab by remember { mutableIntStateOf(initialTab.coerceIn(0, 1)) }
 
-        val model = rememberScreenModel { ProviderManagementModel() }
+        val model = pageModel { ProviderManagementModel() }
         val providers by model.providers.collectAsState()
         val active by model.active.collectAsState()
         val busy by model.busy.collectAsState()
@@ -233,28 +231,19 @@ class ProviderManagementScreen(
             },
         ) { pageModifier ->
             Column(pageModifier) {
-                // Tab 分页栏
+                // M3E 连通切换按钮组
                 Box(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    @Suppress("DEPRECATION")
-                    TabRow(
-                        selectedTabIndex = selectedTab,
+                    CpConnectedChoice(
+                        selectedIndex = selectedTab,
+                        labels = listOf(p.tabProviders, p.tabLyrics),
+                        onSelect = { selectedTab = it },
                         modifier = Modifier.settingsContentWidth(),
-                        containerColor = Color.Transparent,
-                    ) {
-                        Tab(
-                            selected = selectedTab == 0,
-                            onClick = { selectedTab = 0 },
-                            text = { CpText(p.tabProviders) },
-                        )
-                        Tab(
-                            selected = selectedTab == 1,
-                            onClick = { selectedTab = 1 },
-                            text = { CpText(p.tabLyrics) },
-                        )
-                    }
+                    )
                 }
 
                 Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -487,9 +476,9 @@ class ProviderManagementScreen(
     }
 }
 
-class ProviderManagementModel : ScreenModel {
+class ProviderManagementModel : ViewModel() {
     private val presenter = cp.player.app.presentation.providermanagement.ProviderManagementPresenter(
-        scope = screenModelScope,
+        scope = viewModelScope,
     )
 
     val providers: StateFlow<List<BackendProvider>> get() = presenter.providers

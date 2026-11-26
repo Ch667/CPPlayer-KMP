@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -66,7 +65,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -79,6 +77,7 @@ import cp.player.app.ui.component.ContentState
 import cp.player.app.ui.component.CpCoverPlaceholder
 import cp.player.app.ui.component.CpSongRowSkeleton
 import cp.player.app.ui.component.CpSpacing
+import cp.player.app.ui.component.CpSplitButton
 import cp.player.app.ui.component.CpText
 import cp.player.app.ui.component.CpToggleChip
 import cp.player.app.ui.component.CpConnectedChoice
@@ -86,7 +85,6 @@ import cp.player.app.ui.component.CpContextMenu
 import cp.player.app.ui.component.CpContextMenuItem
 import cp.player.app.ui.component.CpAnchoredMenu
 import cp.player.app.ui.component.cpPressScale
-import cp.player.app.ui.component.CpSplitButton
 import cp.player.app.ui.component.legacySegmentGridShape
 import cp.player.app.ui.component.ProvideCpTextFullDisplay
 import cp.player.app.ui.component.LazyScrollColumn
@@ -97,7 +95,7 @@ import cp.player.app.ui.component.PlaylistMenuActions
 import cp.player.app.ui.component.playlistContextMenuItems
 import cp.player.app.ui.component.desktopScrollbarGutter
 import cp.player.app.ui.model.LibraryUiState
-import cp.player.app.ui.util.resized
+import cp.player.app.ui.util.rememberCoverImageRequest
 import cp.player.app.ui.wall.PosterWallIcon
 import cp.player.core.music.AlbumSummary
 import cp.player.core.music.PlaylistSummary
@@ -129,14 +127,12 @@ internal class DesktopLibraryActions(
 @Composable
 internal fun DesktopLibraryLayout(
     state: LibraryUiState,
-    subtitle: String,
     supportsCloud: Boolean,
     isLocalMode: Boolean,
     actions: DesktopLibraryActions,
     gridView: Boolean,
     onGridViewChange: (Boolean) -> Unit,
     compact: Boolean = false,
-    greeting: String? = null,
     localContent: @Composable () -> Unit,
 ) {
     val s = cpStrings()
@@ -155,54 +151,37 @@ internal fun DesktopLibraryLayout(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
-                    horizontal = CpSpacing.pageHorizontal,
-                    vertical = CpSpacing.pageTop,
+                    start = CpSpacing.pageHorizontal,
+                    end = CpSpacing.pageHorizontal,
+                    top = CpSpacing.pageTop,
+                    bottom = CpSpacing.pageTop,
                 ),
                 verticalArrangement = Arrangement.spacedBy(
                     if (playlistList) playlistGap else CpSpacing.section,
                 ),
             ) {
-                item(key = "heading") {
-                    Row(
-                        Modifier.fillMaxWidth().padding(bottom = sectionTail),
-                        horizontalArrangement = Arrangement.spacedBy(CpSpacing.musicGap),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (!greeting.isNullOrBlank()) {
-                                CpText(greeting, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            CpText(
-                                s.library.myMusic,
-                                style = if (compact) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.displaySmall,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 2,
+                // 「共 N 个歌单 · 收藏 M 首」页头统计行已移除：手机端三个动作按钮
+                // 下移到「歌单 / 本地媒体库」分段右侧；桌面端在这里独占一行放
+                // 「新建 / 导入」分体按钮组 + 搜索按钮。
+                if (!compact) {
+                    item(key = "heading") {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CpSplitButton(
+                                onLeadingClick = actions.onCreatePlaylist,
+                                leadingContent = {
+                                    Icon(Icons.Filled.Add, null, Modifier.size(20.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    CpText(s.library.newPlaylist)
+                                },
+                                onTrailingClick = actions.onImport,
+                                trailingContent = { Icon(Icons.Filled.FileUpload, s.library.importPlaylist) },
+                                modifier = Modifier.width(236.dp).height(CpSpacing.touchTarget),
                             )
-                            CpText(
-                                subtitle, maxLines = 2,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            if (!compact) {
-                                Spacer(Modifier.height(4.dp))
-                                CpSplitButton(
-                                    onLeadingClick = actions.onCreatePlaylist,
-                                    leadingContent = {
-                                        Icon(Icons.Filled.Add, null, Modifier.size(20.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        CpText(s.library.newPlaylist)
-                                    },
-                                    onTrailingClick = actions.onImport,
-                                    trailingContent = { Icon(Icons.Filled.FileUpload, s.library.importPlaylist) },
-                                    modifier = Modifier.width(236.dp).height(CpSpacing.touchTarget),
-                                )
-                            }
-                        }
-                        if (state.playlists.isNotEmpty()) {
-                            LibraryCoverStack(
-                                state.playlists.take(3),
-                                Modifier.size(if (compact) 88.dp else 152.dp),
-                            )
+                            DesktopLibraryActionButton(s.library.searchLibrary, Icons.Filled.Search, actions.onSearch)
                         }
                     }
                 }
@@ -251,18 +230,16 @@ internal fun DesktopLibraryLayout(
                         modifier = Modifier.padding(bottom = sectionTail),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                CpText(
-                                    s.library.libraryTitle,
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
+                        Column {
+                            CpText(
+                                s.library.libraryTitle,
+                                style = MaterialTheme.typography.titleLarge,
+                                // 手机端标题降一档字重：这一行与下方分段控件同处一屏，
+                                // 过粗会压过分段；桌面保持 Bold 维持页头分量。
+                                fontWeight = if (compact) FontWeight.SemiBold else FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            if (state.selectedTab != 0) {
                                 CpText(
                                     when (state.selectedTab) {
                                         0 -> s.library.libraryPlaylistsCount(state.playlists.size)
@@ -273,16 +250,12 @@ internal fun DesktopLibraryLayout(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            DesktopLibraryActionButton(s.library.searchLibrary, Icons.Filled.Search, actions.onSearch)
-                            // 导入 / 新建只属于「歌单」页：专辑页上这两个动作没有语义。
-                            if (state.selectedTab == 0) {
-                                DesktopLibraryActionButton(s.library.importPlaylist, Icons.Filled.FileUpload, actions.onImport)
-                                if (compact) {
-                                    DesktopLibraryActionButton(s.library.newPlaylist, Icons.Filled.Add, actions.onCreatePlaylist)
-                                }
-                            }
                         }
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             // 0 = 歌单 / 1 = 专辑 / 2 = 本地媒体库
                             CpConnectedChoice(
                                 selectedIndex = state.selectedTab.coerceIn(0, 2),
@@ -294,7 +267,12 @@ internal fun DesktopLibraryLayout(
                                 onSelect = actions.onSelectTab,
                             )
                             Spacer(Modifier.weight(1f))
-                            if (!compact && state.selectedTab == 0) {
+                            if (compact) {
+                                // 手机端：三个动作按钮回到分段右侧，沿用之前的行内位置。
+                                DesktopLibraryActionButton(s.library.searchLibrary, Icons.Filled.Search, actions.onSearch)
+                                DesktopLibraryActionButton(s.library.importPlaylist, Icons.Filled.FileUpload, actions.onImport)
+                                DesktopLibraryActionButton(s.library.newPlaylist, Icons.Filled.Add, actions.onCreatePlaylist)
+                            } else if (state.selectedTab == 0) {
                                 DesktopLibraryViewToggle(gridView, onGridViewChange)
                             }
                         }
@@ -509,6 +487,7 @@ private fun FavoriteAlbumCard(
 }
 
 @Composable
+
 internal fun DesktopLibraryPlaylist(
     playlist: PlaylistSummary,
     onOpen: () -> Unit,
@@ -545,7 +524,7 @@ internal fun DesktopLibraryPlaylist(
             CpCoverPlaceholder(Modifier.fillMaxSize(), corner = 16.dp, animated = false)
             if (!playlist.coverUrl.isNullOrBlank()) {
                 AsyncImage(
-                    model = playlist.coverUrl.resized(400),
+                    model = rememberCoverImageRequest(playlist.coverUrl, targetPx = 512),
                     contentDescription = playlist.name,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,

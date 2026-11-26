@@ -117,6 +117,9 @@ object DesktopHiResEngine {
 
     init {
         tryLoadLibrary()
+        // 设置页改 DSD 模式时由 [FlickEngineToggles] 回调到这里：引擎未初始化时
+        // [setDsdOutputMode] 只记值不报错，[initEngine] 成功后会用同一份快照补发一次。
+        FlickEngineToggles.registerDsdApplier { mode -> setDsdOutputMode(mode) }
     }
 
     private fun tryLoadLibrary() {
@@ -181,6 +184,15 @@ object DesktopHiResEngine {
                     searchCandidates += File(appRoot, "native/$libFileName")
                     searchCandidates += File(appRoot, "runtime/bin/$libFileName")
                     searchCandidates += File(appRoot, "app/$libFileName")
+                    // Linux/deb 布局：可执行文件在 <root>/bin/CPPlayer，库由 jpackage 的
+                    // `--app-content` 放进 <root>/lib/app（与 jar 同目录）或 <root>/lib。
+                    // 这两个路径不依赖 codeSource 是否可解析，装成 deb / AUR 包时最可靠。
+                    searchCandidates += File(appRoot, "lib/app/$libFileName")
+                    // Nucleus 3.0 的 deb 走 electron-builder，appResources 落在 lib/app/resources/
+                    // 而不是 lib/app/（v1.12.4 实测）。缺这条候选，包里有库也加载不到 ⇒ 静音。
+                    searchCandidates += File(appRoot, "lib/app/resources/$libFileName")
+                    searchCandidates += File(appRoot, "lib/$libFileName")
+                    searchCandidates += File(appRoot, "lib/runtime/lib/$libFileName")
                 }
             }
         } catch (_: Throwable) {
@@ -216,6 +228,7 @@ object DesktopHiResEngine {
         searchCandidates += File(userDir, "native/$libFileName")
         searchCandidates += File(userDir, "../native/$libFileName")
         searchCandidates += File(userDir, "app/native/$libFileName")
+        searchCandidates += File(userDir, "../app/native/$libFileName")
         searchCandidates += File(userDir, "native/flick-player-engine/target/release/$libFileName")
         searchCandidates += File(userDir, "../native/flick-player-engine/target/release/$libFileName")
 
@@ -237,7 +250,13 @@ object DesktopHiResEngine {
         }
 
         _isAvailable = false
-        logger.info("Desktop Hi-Res native library not present. Standard Rodio fallback active.")
+        // 桌面端**没有** rodio / 系统播放器回退路径：缺库就是无输出（NoopDesktopPlatformPlayer），
+        // 这句话旧版写成「Standard Rodio fallback active」，把排查方向直接带偏。
+        logger.warning(
+            "FlickEngine native library not found ($LIB_NAME). " +
+                "Desktop playback will have no audio output; expected location: " +
+                "app/native, <install>/lib/app or <install>/lib.",
+        )
     }
 
     @Synchronized
@@ -251,6 +270,11 @@ object DesktopHiResEngine {
                 isInitialized = true
                 startPolling()
                 startProgressPolling()
+                // DSD 输出模式是「开流前」的配置：引擎重建（切独占 / 换输出设备）后
+                // 必须把用户上次选的模式重放一次，否则会静默回到引擎默认（Auto）。
+                // ⚠️ 必须排在两个 startXxxPolling() **之后**：DesktopProgressPollTest 用
+                // 源码正则钉住「init 成功路径内两个轮询相邻启动」这条契约，插在中间会红。
+                runCatching { nativeSetDsdOutputMode(FlickEngineToggles.dsdMode) }
             }
             success
         } catch (e: Throwable) {
@@ -500,11 +524,11 @@ object DesktopHiResEngine {
         pollJob = null
         progressJob?.cancel()
         progressJob = null
-        if (isInitialized) {
-            try {
-                nativeStop()
-            } catch (_: Throwable) {
-            }
+        isInitialized = false
+        cachedApiLevel = 0
+        try {
+            nativeStop()
+        } catch (_: Throwable) {
         }
     }
 
@@ -580,9 +604,24 @@ object DesktopHiResEngine {
     }
 
     private fun extractJsonString(json: String, key: String): String? {
-        val pattern = "\"$key\"\\s*:\\s*\"((?:\\\\\"|[^\"])*)\"".toRegex()
-        val raw = pattern.find(json)?.groupValues?.get(1) ?: return null
-        return unescapeJson(raw)
+        val valueStart = findJsonValueStart(json, key)
+        if (valueStart < 0 || json[valueStart] != '"') return null
+        var i = valueStart + 1
+        var hasEscape = false
+        while (i < json.length) {
+            val c = json[i]
+            if (c == '\\') {
+                hasEscape = true
+                i += 2
+                continue
+            }
+            if (c == '"') {
+                val raw = json.substring(valueStart + 1, i)
+                return if (hasEscape) unescapeJson(raw) else raw
+            }
+            i++
+        }
+        return null
     }
 
     private fun unescapeJson(raw: String): String {
@@ -627,14 +666,38 @@ object DesktopHiResEngine {
         return sb.toString()
     }
 
-    private fun extractJsonDouble(json: String, key: String): Double? {
-        val pattern = "\"$key\"\\s*:\\s*([0-9.]+)".toRegex()
-        return pattern.find(json)?.groupValues?.get(1)?.toDoubleOrNull()
-    }
+    private fun extractJsonDouble(json: String, key: String): Double? =
+        jsonNumber(json, key)
 
     private fun extractJsonInt(json: String, key: String): Int? {
-        val pattern = "\"$key\"\\s*:\\s*([0-9]+)".toRegex()
-        return pattern.find(json)?.groupValues?.get(1)?.toIntOrNull()
+        val valueStart = findJsonValueStart(json, key)
+        if (valueStart < 0) return null
+        var i = valueStart
+        var neg = false
+        if (i < json.length && json[i] == '-') {
+            neg = true
+            i++
+        }
+        val digitStart = i
+        var acc = 0L
+        while (i < json.length) {
+            val d = json[i] - '0'
+            if (d !in 0..9) break
+            acc = acc * 10L + d
+            if (acc > Int.MAX_VALUE.toLong() + 1L) {
+                return json.substring(valueStart, scanDigitsEnd(json, i)).toIntOrNull()
+            }
+            i++
+        }
+        if (i == digitStart) return null
+        val signed = if (neg) -acc else acc
+        return if (signed in Int.MIN_VALUE..Int.MAX_VALUE) signed.toInt() else null
+    }
+
+    private fun scanDigitsEnd(json: String, from: Int): Int {
+        var i = from
+        while (i < json.length && json[i] in '0'..'9') i++
+        return i
     }
 
     /**
@@ -646,6 +709,7 @@ object DesktopHiResEngine {
         return try {
             val ok = nativeShutdown()
             isInitialized = false
+            cachedApiLevel = 0
             pollJob?.cancel()
             pollJob = null
             progressJob?.cancel()
@@ -659,25 +723,30 @@ object DesktopHiResEngine {
         }
     }
 
+    @Volatile
+    private var cachedApiLevel: Int = 0
+
     /**
      * 当前 DLL 的 API 等级。`1` = 2026-11-10 之前发布的旧库（只会播本地路径），
      * `2` = 带 HTTP 源 / 变速 / gapless / 动态处理的版本。
      *
-     * ⚠️ 不能靠「方法调一下看抛不抛异常」去逐个猜：那会把探测动作本身变成一次
-     * 真实的播放/配置下发。用一个专门的、无副作用的导出做版本握手最省事。
+     * 用动态查询（初始化完成后缓存、shutdown 时清零）替代 `by lazy`：避免 UI / 能力位
+     * 在 [initEngine] 尚未完成时提前读取而永久锁死在 `1`。
      */
-    val apiLevel: Int by lazy {
-        if (!isInitialized) {
-            1
-        } else {
-            try {
+    val apiLevel: Int
+        get() {
+            if (!isInitialized) return 1
+            val cached = cachedApiLevel
+            if (cached > 0) return cached
+            val queried = try {
                 nativeGetEngineApiLevel().coerceAtLeast(1)
             } catch (t: Throwable) {
                 logger.info("Legacy FlickEngine DLL detected (no nativeGetEngineApiLevel); extended features disabled")
                 1
             }
+            cachedApiLevel = queried
+            return queried
         }
-    }
 
     /** 是否具备本次新增的全部引擎能力（宿主据此决定走直连还是落盘）。 */
     val supportsExtendedFeatures: Boolean get() = apiLevel >= 2
@@ -895,12 +964,72 @@ internal fun parseDesktopProgressJson(json: String): DesktopAudioEvent.Progress?
     )
 }
 
-/** 提取 `"key": <number>` 的数值；缺失 / `null` / 非数值都返回 null。 */
+/**
+ * 零正则定位 `"key": <value>` 的值起始字符下标，找不到或紧跟非冒号则继续向后扫描。
+ */
+internal fun findJsonValueStart(json: String, key: String): Int {
+    if (key.isEmpty()) return -1
+    var searchFrom = 0
+    val len = json.length
+    val keyLen = key.length
+    while (searchFrom < len) {
+        val hit = json.indexOf(key, startIndex = searchFrom)
+        if (hit < 0) return -1
+        val closeQuote = hit + keyLen
+        if (hit >= 1 && closeQuote < len && json[hit - 1] == '"' && json[closeQuote] == '"') {
+            var bs = 0
+            var p = hit - 2
+            while (p >= 0 && json[p] == '\\') {
+                bs++
+                p--
+            }
+            if ((bs and 1) == 0) {
+                var cursor = closeQuote + 1
+                while (cursor < len && json[cursor].isJsonWs()) cursor++
+                if (cursor < len && json[cursor] == ':') {
+                    cursor++
+                    while (cursor < len && json[cursor].isJsonWs()) cursor++
+                    return if (cursor < len) cursor else -1
+                }
+            }
+        }
+        searchFrom = hit + 1
+    }
+    return -1
+}
+
+private fun Char.isJsonWs(): Boolean =
+    this == ' ' || this == '\t' || this == '\n' || this == '\r'
+
+/** 提取 `"key": <number>` 的数值；缺失 / `null` / 非数值都返回 null（零 Regex 分配）。 */
 private fun jsonNumber(json: String, key: String): Double? {
-    val number = "-?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
-    return Regex("\"$key\"\\s*:\\s*($number)")
-        .find(json)
-        ?.groupValues
-        ?.get(1)
-        ?.toDoubleOrNull()
+    val start = findJsonValueStart(json, key)
+    if (start < 0) return null
+    val len = json.length
+    var i = start
+    if (i < len && json[i] == '-') i++
+    val intStart = i
+    while (i < len && json[i] in '0'..'9') i++
+    val hasIntDigits = i > intStart
+    var hasFracDigits = false
+    if (i < len && json[i] == '.') {
+        i++
+        val fracStart = i
+        while (i < len && json[i] in '0'..'9') i++
+        hasFracDigits = i > fracStart
+    }
+    if (!hasIntDigits && !hasFracDigits) return null
+    if (i < len && (json[i] == 'e' || json[i] == 'E')) {
+        val expMark = i
+        var j = i + 1
+        if (j < len && (json[j] == '+' || json[j] == '-')) j++
+        val expDigitsStart = j
+        while (j < len && json[j] in '0'..'9') j++
+        if (j > expDigitsStart) {
+            i = j
+        } else {
+            i = expMark
+        }
+    }
+    return json.substring(start, i).toDoubleOrNull()
 }

@@ -28,10 +28,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.model.ScreenModel
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.model.screenModelScope
-import cafe.adriel.voyager.core.screen.Screen
+import androidx.lifecycle.ViewModel
+import cp.player.app.ui.navigation.pageModel
+import androidx.lifecycle.viewModelScope
+import cp.player.app.ui.navigation.RoutePage
 import cp.player.app.i18n.cpStrings
 import cp.player.app.AppModel
 import cp.player.app.presentation.navigation.AppRoute
@@ -69,20 +69,21 @@ import kotlinx.coroutines.launch
 class AlbumDetailScreen(
     private val albumResourceId: String,
     private val fallback: AlbumSummary? = null,
-) : Screen {
+) : RoutePage {
     constructor(albumId: Long, fallback: AlbumSummary? = null) : this(albumId.toString(), fallback)
     @Composable
     override fun Content() {
         val navigator = LocalAppNavigator.current
+        val resolvedId = fallback?.resourceId ?: albumId.toString()
         AlbumDetailContent(
             albumId = fallback?.resourceId ?: albumResourceId,
             fallback = fallback,
-            // ⚠️ `rememberScreenModel` 是**定义在 `Screen` 上的扩展函数**
-            // （`javap` 核实：`rememberScreenModel(Screen, String, Function0, ...)`），
-            // 只有在 Screen 子类的成员里才有接收者。放到顶层的私有 @Composable 里会
+            // ⚠️ `pageModel` 是**定义在 `RoutePage` 上的扩展函数**
+            // （`javap` 核实：`pageModel(RoutePage, String, Function0, ...)`），
+            // 只有在 RoutePage 子类的成员里才有接收者。放到顶层的私有 @Composable 里会
             // 直接报 `Unresolved reference`。所以模型一律在这里建好往下传 ——
             // 与 [PlaylistDetailScreen] 同一套写法。
-            model = rememberScreenModel { AlbumDetailModel() },
+            model = pageModel { AlbumDetailModel().apply { primeFromCache(resolvedId) } },
             onBack = { navigator.pop() },
         )
     }
@@ -91,14 +92,16 @@ class AlbumDetailScreen(
 private typealias AlbumUiState = cp.player.app.presentation.albumdetail.AlbumUiState
 
 /** 专辑详情页的 Voyager 适配层（Thin Adapter）。 */
-private class AlbumDetailModel : ScreenModel {
+private class AlbumDetailModel : ViewModel() {
     private val presenter = cp.player.app.presentation.albumdetail.AlbumDetailPresenter(
-        scope = screenModelScope,
+        scope = viewModelScope,
         notify = UiEvents::notify,
     )
 
     val state: StateFlow<AlbumUiState> get() = presenter.state
 
+    fun primeFromCache(albumId: String): Boolean = presenter.primeFromCache(albumId)
+    fun resolvedProviderId(): String = presenter.resolvedProviderId()
     fun load(albumId: String, fallback: AlbumSummary?) = presenter.load(albumId, fallback)
     fun toggleFavorite() = presenter.toggleFavorite()
 }
@@ -115,7 +118,7 @@ private fun AlbumDetailContent(
     val navigator = LocalAppNavigator.current
     val state by model.state.collectAsState()
     val scope = rememberCoroutineScope()
-    val provider = AppModel.activeProviderId()
+    val provider = model.resolvedProviderId()
     val playbackState by AppModel.playback.state.collectAsState()
     val currentTrackId = playbackState.currentTrack?.id
     val likedIds by AppModel.playback.likedIds.collectAsState()

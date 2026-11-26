@@ -62,8 +62,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.screen.Screen
+import cp.player.app.ui.navigation.pageModel
+import cp.player.app.ui.navigation.compositionModel
+import cp.player.app.ui.navigation.RoutePage
 import cp.player.app.i18n.CpStrings
 import cp.player.app.i18n.cpStrings
 import cp.player.app.AppModel
@@ -134,10 +135,10 @@ import kotlinx.coroutines.launch
  * 挤在同一个滚动容器里只会互相干扰（滚动位置共享、入口点了没反应）。
  * 现在云盘是独立路由页 [CloudDriveScreen]，仪表盘上的「云盘」卡直接跳转。
  */
-class LibraryScreen(private val initialPlaylistId: Long? = null) : Screen {
+class LibraryScreen(private val initialPlaylistId: Long? = null) : RoutePage {
     @Composable
     override fun Content() {
-        val model = rememberScreenModel { LibraryScreenModel() }
+        val model = pageModel { LibraryScreenModel() }
         LaunchedEffect(initialPlaylistId) {
             if (initialPlaylistId != null) model.selectPlaylist(initialPlaylistId)
         }
@@ -175,10 +176,8 @@ private fun LibraryScreenContent(model: LibraryScreenModel) {
     // 但重命名不是破坏性操作，走独立的输入框而不是 CpConfirmHost。
     var renameTarget by remember { mutableStateOf<PlaylistSummary?>(null) }
     val navigator = LocalAppNavigator.current
-    val downloadsModel = remember { DownloadsScreenModel() }
+    val downloadsModel = compositionModel { DownloadsScreenModel() }
     val downloadsState by downloadsModel.state.collectAsState()
-    val likedIds by AppModel.playback.likedIds.collectAsState()
-    val profile by AppModel.userProfileFlow.collectAsState()
     val expanded = LocalIsExpanded.current
     var gridView by rememberSaveable { mutableStateOf(true) }
     val supportsCloud = rememberActiveProviderSupports(ProviderCapability.CLOUD_DRIVE)
@@ -226,7 +225,6 @@ private fun LibraryScreenContent(model: LibraryScreenModel) {
     ) {
         DesktopLibraryLayout(
             state = state,
-            subtitle = s.library.librarySubtitle(state.playlists.size, likedIds.size),
             supportsCloud = supportsCloud,
             isLocalMode = AppModel.activeProvider() == null,
             // Mobile defaults to a dense list for faster scanning and one-handed actions.
@@ -234,7 +232,6 @@ private fun LibraryScreenContent(model: LibraryScreenModel) {
             gridView = if (expanded) gridView else false,
             onGridViewChange = { gridView = it },
             compact = !expanded,
-            greeting = if (!expanded) profile?.nickname?.let(s.library::greeting) else null,
             actions = DesktopLibraryActions(
                 onSelectTab = { index -> model.selectTab(index) },
                 onCreatePlaylist = { showCreateDialog = true },

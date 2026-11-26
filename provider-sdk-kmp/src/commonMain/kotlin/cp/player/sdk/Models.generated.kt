@@ -1888,11 +1888,11 @@ data class ScrobbleRequest(
     }
 }
 
-/** Current login state without mutating the session's credential snapshot. */
+/** Current login state without mutating the session's credential snapshot. A supplied credential can be expired or rejected. */
 data class AccountSession(
-    /** Whether the immutable account session is authenticated. */
+    /** Whether the provider confirms the current session is authenticated. Do not infer validity from the presence of a credential. */
     val loggedIn: Boolean,
-    /** Opaque provider-local user identity, not the host account-slot key. */
+    /** Non-blank provider-local user identity when loggedIn is true; distinct from the host account-slot key. */
     val userId: String? = null,
     /** Public display nickname. */
     val nickname: String? = null,
@@ -2020,13 +2020,13 @@ data class AuthActionRequest(
     }
 }
 
-/** Authentication result/challenge. The host owns credential storage and session replacement. */
+/** Result of one authentication action. A successful step (such as captcha.send) does not necessarily complete login. */
 data class AuthActionResult(
-    /** Explicit mutation/authentication acknowledgement; false is not an empty successful data page. */
+    /** Whether this action succeeded. Completed login also requires challenge=false and a non-blank credential. */
     val success: Boolean,
     /** Provider authentication status code when known. */
     val code: Int? = null,
-    /** Provider authentication/check status code when known. */
+    /** Authentication step status. For QR checks, use 800 expired, 801 waiting, 802 scanned, or 803 completed. */
     val status: Int? = null,
     /** Operation-specific storage/authentication key. */
     val key: String? = null,
@@ -2034,11 +2034,11 @@ data class AuthActionResult(
     val url: String? = null,
     /** Authentication captcha image payload, not an upload transport. */
     val imageBase64: String? = null,
-    /** New authentication credential for host storage; never copy into resource headers implicitly. */
+    /** Provider credential on final login, or a temporary challenge credential on captcha.image. Never log or forward it to media resources. */
     val cookie: String? = null,
     /** Verification page URL. */
     val verifyUrl: String? = null,
-    /** Whether an additional authentication challenge is required. */
+    /** Whether an additional verification step is required before login completes. */
     val challenge: Boolean,
     /** Sanitized human-readable explanation, not a credential or upstream response dump. */
     val message: String? = null,
@@ -4285,6 +4285,60 @@ data class EventPageRequest(
     }
 }
 
+/** Keyword and opaque continuation cursor for a page of visible posts. */
+data class EventSearchRequest(
+    /** Search text, not an encoded query string. */
+    val keyword: String,
+    /** Requested item bound, 1..500; a response must not exceed it. */
+    val limit: Int = 30,
+    /** Opaque continuation token. Preserve empty strings and punctuation; at most 4096 characters for extended operations. */
+    val cursor: String? = null,
+) {
+    fun write(w: WireWriter) { with(w) {
+        string(this@EventSearchRequest.keyword)
+        int(this@EventSearchRequest.limit)
+        optional(this@EventSearchRequest.cursor) { v -> string(v) }
+    } }
+    fun values(): Map<String, Any?> = mapOf(
+        "keyword" to keyword,
+        "limit" to limit,
+        "cursor" to cursor?.let { it },
+    )
+    companion object {
+        fun read(r: WireReader): EventSearchRequest = with(r) { EventSearchRequest(
+            string(),
+            int(),
+            optional { string() },
+        ) }
+        fun fromValues(v: Map<String, Any?>): EventSearchRequest = EventSearchRequest(
+            valueString(v["keyword"]),
+            valueInt(v["limit"]),
+            v["cursor"]?.let { valueString(it) },
+        )
+    }
+}
+
+/** Non-blank plain text for a post without a resource attachment, up to 140 Unicode code points. */
+data class PublishEventRequest(
+    /** Plain text, never an upstream JSON message envelope. */
+    val text: String,
+) {
+    fun write(w: WireWriter) { with(w) {
+        string(this@PublishEventRequest.text)
+    } }
+    fun values(): Map<String, Any?> = mapOf(
+        "text" to text,
+    )
+    companion object {
+        fun read(r: WireReader): PublishEventRequest = with(r) { PublishEventRequest(
+            string(),
+        ) }
+        fun fromValues(v: Map<String, Any?>): PublishEventRequest = PublishEventRequest(
+            valueString(v["text"]),
+        )
+    }
+}
+
 /** User-scoped social-feed cursor input. */
 data class UserEventRequest(
     /** Opaque, case-sensitive provider-local identity; preserve leading zeros and punctuation. */
@@ -6014,4 +6068,6 @@ object ProviderProtocol {
     const val LIKERESOURCE = 167
     const val RESOLVEDRM = 168
     const val EXCHANGELICENSE = 169
+    const val SEARCHEVENTS = 171
+    const val PUBLISHEVENT = 172
 }

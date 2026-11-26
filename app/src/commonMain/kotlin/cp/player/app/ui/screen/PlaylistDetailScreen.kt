@@ -56,7 +56,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SortByAlpha
-import androidx.compose.material3.AlertDialog
+import cp.player.app.ui.component.CpAlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -80,6 +80,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.Placeable
@@ -95,8 +96,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import cafe.adriel.voyager.core.screen.Screen
-import cafe.adriel.voyager.core.model.rememberScreenModel
+import cp.player.app.ui.navigation.RoutePage
+import cp.player.app.ui.navigation.pageModel
 import coil3.compose.AsyncImage
 import cp.player.app.i18n.cpStrings
 import cp.player.app.AppModel
@@ -145,9 +146,11 @@ import cp.player.app.ui.component.songShareText
 import cp.player.app.ui.model.PlaylistDetailScreenModel
 import cp.player.app.ui.model.PlaylistDetailUiState
 import cp.player.app.presentation.playlistdetail.PlaylistDetailContract
+import cp.player.app.ui.util.CoverPrefetcher
 import cp.player.app.ui.util.UiEvents
 import cp.player.app.ui.util.formatTimeMs
-import cp.player.app.ui.util.resized
+import cp.player.app.ui.util.rememberCoverImageRequest
+import coil3.compose.LocalPlatformContext
 import cp.player.core.BackendResult
 import cp.player.core.music.CPMediaId
 import cp.player.core.music.PlaylistTracksPage
@@ -164,12 +167,15 @@ class PlaylistDetailScreen(
     val playlist: PlaylistSummary,
     private val embedded: Boolean = false,
     private val onEmbeddedBack: (() -> Unit)? = null,
-) : Screen {
+) : RoutePage {
     @Composable
     override fun Content() {
+        val model = pageModel {
+            PlaylistDetailScreenModel().apply { primeFromCache(playlist) }
+        }
         PlaylistDetailContent(
             playlist = playlist,
-            model = rememberScreenModel { PlaylistDetailScreenModel() },
+            model = model,
             embedded = embedded,
             onEmbeddedBack = onEmbeddedBack,
         )
@@ -229,9 +235,29 @@ fun PlaylistDetailContent(
 
     // 首页生成的虚拟歌单（每日推荐 / 相似歌曲 / 心动模式）id 为负数，服务端并不存在，
     // 曲目已随导航传入，必须跳过远端加载，否则接口 404 会让详情页只剩空白。
+    if (!isLocalPlaylist && !loadingOverride) {
+        remember(playlist.resourceId) { model.primeFromCache(playlist) }
+    }
     LaunchedEffect(playlist.resourceId, isLocalPlaylist) {
         if (isLocalPlaylist) model.loadLocal(playlist, initialOverrideTracks.orEmpty(), loadingOverride)
         else model.load(playlist, s)
+    }
+
+    val platformContext = LocalPlatformContext.current
+    LaunchedEffect(playlist.resourceId, state.summary?.coverUrl, playlist.coverUrl) {
+        val cover = state.summary?.coverUrl ?: playlist.coverUrl
+        CoverPrefetcher.prefetchCover(platformContext, cover, targetPx = 512, writeMemoryCache = true)
+    }
+    LaunchedEffect(playlist.resourceId, state.tracks) {
+        if (state.tracks.isNotEmpty()) {
+            CoverPrefetcher.prefetchCovers(
+                context = platformContext,
+                urls = state.tracks.asSequence().map { it.coverUrl }.asIterable(),
+                targetPx = 128,
+                limit = 12,
+                writeMemoryCache = true,
+            )
+        }
     }
 
     // 曲目就绪后从 autoPlayIndex 开始播放（为 null 时只浏览不播放）。
@@ -771,7 +797,7 @@ fun PlaylistDetailContent(
                 showInfoTarget = null
             }
         }
-        AlertDialog(
+        CpAlertDialog(
             onDismissRequest = { showInfoTarget = null },
             title = { CpText(s.library.songDetails, maxLines = 1) },
             text = {
@@ -1020,36 +1046,42 @@ private fun NarrowLayout(
                         .padding(end = 8.dp)
                         .graphicsLayer { alpha = titleSearchFadeAlpha },
                 ) {
-                    // 封面槽位随封面一起收起，避免折叠后标题左侧残留空白。
+                    // 封面槽位随封面一起收起，但保持 AsyncImage 常驻组合树，避免折叠展开时反复重建重载。
                     Box(
-                        modifier = Modifier.width(70.dp * coverFraction).height(56.dp),
+                        modifier = Modifier.width(70.dp * coverFraction).height(56.dp).clipToBounds(),
                         contentAlignment = Alignment.CenterStart,
                     ) {
-                        if (coverFraction > 0.01f) {
-                            Surface(
-                                modifier = Modifier
-                                    .size(56.dp * coverFraction)
-                                    .graphicsLayer { alpha = coverFraction }
-                                    .coverFlightTarget(CoverFlight.TARGET_PLAYLIST_HEADER, 12.dp),
-                                shape = RoundedCornerShape(12.dp * coverFraction),
-                                color = cpNestedSurface(),
-                                shadowElevation = (2 * coverFraction).dp,
-                            ) {
-                                val hideCover = CoverFlight.isFlyingTo(CoverFlight.TARGET_PLAYLIST_HEADER)
+                        val hideCover = CoverFlight.isFlyingTo(CoverFlight.TARGET_PLAYLIST_HEADER)
+                        Surface(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .graphicsLayer {
+                                    alpha = coverFraction
+                                    scaleX = coverFraction
+                                    scaleY = coverFraction
+                                    transformOrigin = TransformOrigin(0f, 0.5f)
+                                }
+                                .coverFlightTarget(CoverFlight.TARGET_PLAYLIST_HEADER, 12.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = cpNestedSurface(),
+                            shadowElevation = if (coverFraction > 0.01f) (2 * coverFraction).dp else 0.dp,
+                        ) {
+                            Box(Modifier.fillMaxSize().graphicsLayer { alpha = if (hideCover) 0f else 1f }) {
+                                CpCoverPlaceholder(
+                                    modifier = Modifier.fillMaxSize(),
+                                    corner = 12.dp,
+                                    animated = false,
+                                )
                                 if (!summary.coverUrl.isNullOrBlank()) {
                                     AsyncImage(
-                                        model = summary.coverUrl.resized(200),
+                                        model = rememberCoverImageRequest(
+                                            summary.coverUrl,
+                                            targetSizeDp = 56.dp,
+                                            placeholderBucketPx = 256,
+                                        ),
                                         contentDescription = summary.name,
                                         contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                            .graphicsLayer { alpha = if (hideCover) 0f else 1f },
-                                    )
-                                } else {
-                                    CpCoverPlaceholder(
-                                        modifier = Modifier.fillMaxSize()
-                                            .graphicsLayer { alpha = if (hideCover) 0f else 1f },
-                                        corner = 12.dp,
-                                        animated = false,
+                                        modifier = Modifier.fillMaxSize(),
                                     )
                                 }
                             }
@@ -1082,13 +1114,14 @@ private fun NarrowLayout(
                                     color = cpNestedSurface(),
                                 ) {
                                     CpText(
-                            text = when {
-                                isCloudDrive -> s.library.cloudDrive
-                                isOwner -> "我创建的"
-                                isFavorite -> "已收藏"
-                                else -> "公开歌单"
-                            },
-                                        style = MaterialTheme.typography.labelSmall,
+                                        // 与右侧「N 首歌曲」共用 12sp / 16sp 字阶，避免标签基线偏高。
+                                        text = when {
+                                            isCloudDrive -> s.library.cloudDrive
+                                            isOwner -> "我创建的"
+                                            isFavorite -> "已收藏"
+                                            else -> "公开歌单"
+                                        },
+                                        style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                     )
@@ -1296,21 +1329,24 @@ private fun WideLayout(
                         shadowElevation = 8.dp,
                     ) {
                         val hideCover = CoverFlight.isFlyingTo(CoverFlight.TARGET_PLAYLIST_HEADER)
-                        if (!summary.coverUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = summary.coverUrl.resized(600),
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                                    .graphicsLayer { alpha = if (hideCover) 0f else 1f },
-                            )
-                        } else {
+                        Box(Modifier.fillMaxSize().graphicsLayer { alpha = if (hideCover) 0f else 1f }) {
                             CpCoverPlaceholder(
-                                modifier = Modifier.fillMaxSize()
-                                    .graphicsLayer { alpha = if (hideCover) 0f else 1f },
+                                modifier = Modifier.fillMaxSize(),
                                 corner = 28.dp,
-                                animated = true,
+                                animated = false,
                             )
+                            if (!summary.coverUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = rememberCoverImageRequest(
+                                        summary.coverUrl,
+                                        targetSizeDp = coverSize,
+                                        placeholderBucketPx = 256,
+                                    ),
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
                         }
                     }
 
@@ -2416,7 +2452,6 @@ private fun InPlaylistSearchBar(
         modifier = modifier.fillMaxWidth(),
         shape = CircleShape,
         color = cpCardSurface(),
-        tonalElevation = 2.dp,
     ) {
         Row(
             modifier = Modifier

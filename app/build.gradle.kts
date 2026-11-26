@@ -341,6 +341,9 @@ tasks.withType<JavaCompile>().configureEach {
 
 
     sourceSets {
+        val jvmMain by creating {
+            dependsOn(commonMain.get())
+        }
         val commonMain by getting {
             dependencies {
                 api(project(":core"))
@@ -359,9 +362,8 @@ tasks.withType<JavaCompile>().configureEach {
                 implementation(libs.kotlinx.coroutines.core)
                 implementation(libs.kotlinx.serialization.json)
                 implementation(libs.kotlinx.datetime)
-                implementation(libs.voyager.navigator)
-                implementation(libs.voyager.screenmodel)
-                implementation(libs.voyager.transitions)
+                implementation(libs.navigation3.ui)
+                implementation(libs.navigation3.viewmodel)
                 implementation(libs.qrose)
                 implementation(libs.coil.compose)
                 implementation(libs.coil.network.okhttp)
@@ -381,6 +383,7 @@ tasks.withType<JavaCompile>().configureEach {
             }
         }
         val androidMain by getting {
+            dependsOn(jvmMain)
             dependencies {
                 implementation(libs.androidx.activity.compose)
                 // FileProvider（本地歌曲「在文件管理器中打开」的私有目录兜底）。
@@ -390,9 +393,17 @@ tasks.withType<JavaCompile>().configureEach {
                 implementation(libs.androidx.media.compat)
                 implementation(libs.kotlinx.coroutines.android)
                 implementation(libs.ktor.client.okhttp)
+                implementation(libs.lyricon.provider)
+                implementation(libs.superlyric.api)
+                implementation(libs.lyric.getter.api)
+                implementation(libs.hyper.focus.api)
+                implementation(libs.shizuku.api)
+                implementation(libs.shizuku.provider)
+                implementation(libs.hidden.api.bypass)
             }
         }
         val desktopMain by getting {
+            dependsOn(jvmMain)
             dependencies {
                 implementation(compose.desktop.currentOs)
                 implementation(libs.nucleus.application)
@@ -578,6 +589,7 @@ val desktopCommonJvmArgs = (listOf(
     "--enable-native-access=ALL-UNNAMED",
     "-Xms64m",
     "-Xmx256m",
+    "-Xss512k",
     "-Dcp.player.versionName=$appVersionName",
     "-Dcp.player.versionCode=$appVersionCode",
     "-Dcp.player.releaseChannel=$appReleaseChannel",
@@ -597,11 +609,49 @@ val desktopCommonJvmArgs = (listOf(
 // peak limits for dense image/control pages that otherwise churn the young gen.
 val desktopRunHeapArgs = listOf("-Xms64m", "-Xmx192m", "-Xmn48m")
 
+// ---------------------------------------------------------------------------
+// FlickEngine 原生动态库：随 app-image 一起进安装包
+//
+// jpackage 的 `--app-content` 会把目录内容原样拷进应用目录（Linux: `lib/app`，
+// Windows: `app/`），正是 `DesktopHiResEngine` 从 jar 位置反推的搜索目录。
+//
+// 为什么需要这一层：`packageLinuxTarGz` 的注入发生在 createDistributable **之后**，
+// 只覆盖 tar.gz；而 `packageDeb` 是另一次 jpackage 调用，从零生成自己的应用镜像，
+// 事后注入碰不到它 ⇒ deb 装出来没有引擎、Linux 上完全没有声音。
+//
+// ⚠️ 只带**当前宿主平台**的库：Linux runner 只拷 .so、Windows 只拷 .dll，
+// 不把 6 MB 的异构二进制塞进另一个平台的包里。
+// ⚠️ 目录由本任务生成，jpackage 任务必须显式依赖它 —— Gradle 不会自动连线，
+// 漏了就会「目录为空但构建成功」，装出来依旧无声。
+val (nativeLibOsDir, nativeLibExt) = when {
+    System.getProperty("os.name").lowercase().contains("win") -> "windows" to "dll"
+    System.getProperty("os.name").lowercase().contains("mac") -> "macos" to "dylib"
+    else -> "linux" to "so"
+}
+val prepareDesktopAppResources = tasks.register<Sync>("prepareDesktopAppResources") {
+    group = "compose desktop"
+    description = "把当前平台的 FlickEngine 动态库整理到 build/app-resources（jpackage --app-content 的输入）。"
+    into(layout.buildDirectory.dir("app-resources"))
+    from(project.file("native")) {
+        include("*.$nativeLibExt")
+        // Nucleus 的 prepareAppResources 只从 appResourcesRootDir 下的 common/、<os>/、<target>/ 读取，
+        // 放在根目录会被静默忽略并触发 Gradle 隐式依赖报错。
+        into(nativeLibOsDir)
+    }
+}
+tasks.matching {
+    it.name == "prepareAppResources" ||
+        it.name == "prepareSandboxedAppResources" ||
+        it.name == "createDistributable" ||
+        it.name.startsWith("package")
+}.configureEach {
+    dependsOn(prepareDesktopAppResources)
+}
+
 nucleus {
     application {
         mainClass = "cp.player.app.MainKt"
         logger.lifecycle("CPPlayer: 桌面端 JVM 调优模式: GC=$chosenGc, CompactHeaders=$enableCompactHeaders, JDK25+=$isJdk25OrNewer")
-
         // 换 JBR：让 jpackage 用 JetBrains Runtime 做运行时镜像。
         //
         // ⚠️ **没解析到就不设**，不能设成 null / 不存在的路径 ——
@@ -664,6 +714,11 @@ nucleus {
             // 「目录选择框是老式对话框」「向导步骤多」这些都属于 MSI 的固有行为，
             // 在本仓库的配置层面改不动。详见 RELEASE.md「Windows 安装包」。
             targetFormats(TargetFormat.Dmg, TargetFormat.Deb)
+
+            // FlickEngine 动态库（见上面 prepareDesktopAppResources 的说明）。
+            // jpackage `--app-content` ⇒ Linux 落到 lib/app、Windows 落到 app/，
+            // 两条搜索路径都在 DesktopHiResEngine 的候选列表里。
+            appResourcesRootDir.set(layout.dir(prepareDesktopAppResources.map { it.destinationDir }))
 
             // ⚠️ release 的 jlink 镜像是**按模块清单裁剪**的，这份清单必须手工维护
             // （2026-10-05 真实事故：1.4.3 安装包启动即死，本地 `desktopRun` 完全复现不了）。
@@ -792,11 +847,15 @@ nucleus {
             // 项目自身资源按 resource roots 自动登记：动态 getResourceAsStream(computedPath)
             // 无法被 native-image 静态发现，漏登记就是运行时静默少文件。
             autoIncludeResources.set(true)
+            if (findProperty("cp.graalvm.buildReport") == "true") {
+                buildArgs.addAll("--emit", "build-report")
+            }
             // 注解处理器按命名约定产出的类（Room *_Impl、Dagger/Hilt *_Factory 等）
             // 静态分析看不见，由插件补 public no-arg <init> 注册。
             detectOrphanProjectClasses.set(true)
             // 这是成品运行时 Java heap 上限（Nucleus 映射为 Native Image runtime 参数），不限制构建器 -Xmx。
-            maxHeapSize.set("160m")
+            // 配合存活集压缩（SwrCache / 歌词缓存 / 本地封面流式解析）与托盘隐藏期内存裁剪，压至 100m。
+            maxHeapSize.set("100m")
             val pgoProfile = layout.projectDirectory.file("graalvm/pgo/default.iprof")
             pgo {
                 // 保留 runWithPgoInstrument 训练任务；Nucleus 仅在 profile 文件存在时给正式构建传 --pgo。
@@ -835,16 +894,19 @@ nucleus {
             }
             buildArgs.addAll(
                 "-H:+UnlockExperimentalVMOptions",
+                // Windows 镜像从 exe 同级 fonts/ 读取这三款字体；保留 JVM / Android 的资源。
+                "-H:ExcludeResources=(.*/)?(google_sans_flex|misans_vf|noto_sans_jp)[.]ttf",
                 "-H:+CompactingOldGen",
+                // 线程栈大小 512 KB（524288 字节，对应 JVM 侧的 -Xss512k；依赖上面的 UnlockExperimentalVMOptions）。
+                "-H:StackSize=524288",
                 // ── Serial GC 的帧率优先参数（Compose / Skiko）──────────────────
                 // Native Image 的 Serial GC 只有 STW 的 minor / major 两种停顿：
-                // 年轻代越大，单次 minor 的复制量越大；120/144Hz 的帧预算只有
-                // 8.3/6.9ms，超过预算就是肉眼可见的掉帧。
-                // 32m 年轻代给图片解码、Compose layout 和短时请求对象更多缓冲；
-                // 老年代仍有 ~128m，相对 55~60m 的存活集有足够晋升余量，
-                // 减少必须做整堆 compaction 的 Full GC。`-Xmx` 仍由上面的
-                // `maxHeapSize=160m` 写进镜像（Nucleus -> -R:MaxHeapSize=160m）。
-                "-R:MaxNewSize=32m",
+                // 单次 minor 停顿主要取决于实际存活对象量，而过小的新生代会导致高频
+                // minor GC 与短命突发对象过早晋升老年代。
+                // 24m 年轻代配合 100m 总堆上限，为图片解码/Compose 布局突发留出缓冲，
+                // 同时给老年代留出 ~76m 空间容纳压缩后的存活集。
+                // `-Xmx` 仍由上面的 `maxHeapSize=100m` 写进镜像（Nucleus -> -R:MaxHeapSize=100m）。
+                "-R:MaxNewSize=24m",
                 // 显式钉住 25.3 的默认策略 Adaptive2，避免升级 GraalVM 时
                 // 默认 collector 策略漂移导致停顿曲线悄悄变化。
                 "-R:InitialCollectionPolicy=Adaptive2",
@@ -1021,6 +1083,35 @@ val packageLinuxTarGz = tasks.register<Tar>("packageLinuxTarGz") {
                 }
             }
         }
+
+        // 引擎库是 Linux **出声的前提**：缺它时包能装、能启动，但任何音乐都放不出声
+        // （DesktopHiResPlatformPlayer 会退回 Noop）。CI 有独立的产物断言，
+        // 本地 makepkg / 手动跑任务同样必须早失败，别等到用户报「Linux 版没声音」。
+        val flickSo = appDir.resolve("lib/app/librust_lib_flick_player.so")
+        check(flickSo.isFile) {
+            "Linux 安装镜像里没有 librust_lib_flick_player.so：CI 会从 " +
+                "FLICK_NATIVE_RELEASE_TAG 下载 librust_lib_flick_player-linux-x64.so；" +
+                "本地构建先把它放到 app/native/（见 docs/dev/FLICK_ENGINE.md §7.5）。"
+        }
+        // 只查结构，不算 hash：这个库随仓库走，git blob 已经是版本锚点；
+        // 这里要挡的是「把 Android arm64 的 .so 同名放进来」——那样 JVM 能 dlopen 成功，
+        // 但 JNI 调用会全部失败，现象是 Linux 版静音且不报错。
+        flickSo.inputStream().use { input ->
+            val magic = ByteArray(4)
+            val machine = ByteArray(2)
+            check(
+                input.read(magic) == 4 &&
+                    magic.contentEquals(byteArrayOf(0x7f, 0x45, 0x4c, 0x46)),
+            ) { "librust_lib_flick_player.so 不是 ELF 文件（别把 Android 的 .so 放进来）" }
+            input.skip(12) // 跳过 e_ident 剩余 12 字节，当前位置 = 偏移 16（e_type）
+            val elfType = ByteArray(2)
+            check(input.read(elfType) == 2 && elfType.contentEquals(byteArrayOf(0x03, 0x00))) {
+                "librust_lib_flick_player.so 不是共享库（e_type 应为 ET_DYN=3）"
+            }
+            check(input.read(machine) == 2 && machine.contentEquals(byteArrayOf(0x3e, 0x00))) {
+                "librust_lib_flick_player.so 不是 x86_64（e_machine 应为 0x3e，别放 Android arm64 的库）"
+            }
+        }
     }
 }
 
@@ -1072,6 +1163,32 @@ val packageLinuxTarGz = tasks.register<Tar>("packageLinuxTarGz") {
 // 让 Velopack 写进自己的快捷方式，值必须与代码里的 `WindowsSmtcIdentity.APP_ID` 一致；
 // 改代码里的 APP_ID 时这里要同步（两处不一致 = SMTC 身份失效）。
 // ⚠️ 别改成 StartMenu 子目录「错开」——那只是让两个同名入口互相看不见，AUMID 仍然对不上。
+fun stageWindowsNativeAssets(appDir: File) {
+    val fonts = mapOf(
+        "google_sans_flex.ttf" to "src/commonMain/composeResources/font/google_sans_flex.ttf",
+        "misans_vf.ttf" to "src/desktopMain/resources/fonts/misans_vf.ttf",
+        "noto_sans_jp.ttf" to "src/desktopMain/resources/fonts/noto_sans_jp.ttf",
+    )
+    val fontDir = appDir.resolve("fonts").also { it.mkdirs() }
+    fonts.forEach { (name, path) ->
+        val source = project.file(path)
+        check(source.isFile && source.length() > 0) { "缺少 Windows 原生版字体：${source.absolutePath}" }
+        source.copyTo(fontDir.resolve(name), overwrite = true)
+        val duplicate = appDir.resolve("resources/fonts/$name")
+        check(!duplicate.exists() || duplicate.delete()) { "无法移除重复字体：$duplicate" }
+    }
+    val flick = "rust_lib_flick_player.dll"
+    val source = listOf(project.file("native/$flick"), rootProject.file("native/$flick"))
+        .firstOrNull { it.isFile }
+    if (source != null) {
+        source.copyTo(appDir.resolve(flick), overwrite = true)
+        listOf("native", "app", "runtime/bin").forEach { dir ->
+            val duplicate = appDir.resolve("$dir/$flick")
+            check(!duplicate.exists() || duplicate.delete()) { "无法移除重复音频库：$duplicate" }
+        }
+    }
+}
+
 val packageWindowsVelopack = tasks.register<Exec>("packageWindowsVelopack") {
     group = "compose desktop"
     description =
@@ -1142,7 +1259,8 @@ val packageWindowsVelopack = tasks.register<Exec>("packageWindowsVelopack") {
 
         // 生产发版（Windows）：优先采用 GraalVM Native Image 编译产出的独立原生应用镜像
         val graalvmAppDir = layout.buildDirectory.dir("compose/binaries/main/graalvm-app/$cpPackageName").get().asFile
-        if (graalvmAppDir.resolve("$cpPackageName.exe").isFile) {
+        var hasNativeApp = graalvmAppDir.resolve("$cpPackageName.exe").isFile
+        if (hasNativeApp) {
             appDir.mkdirs()
             graalvmAppDir.copyRecursively(appDir, overwrite = true)
             logger.lifecycle("已装配 GraalVM Native Image 原生应用镜像: ${graalvmAppDir.absolutePath} -> ${appDir.absolutePath}")
@@ -1156,6 +1274,7 @@ val packageWindowsVelopack = tasks.register<Exec>("packageWindowsVelopack") {
             )
             val foundNativeExe = nativeCandidates.firstOrNull { it.isFile }
             if (foundNativeExe != null) {
+                hasNativeApp = true
                 appDir.mkdirs()
                 val destExe = appDir.resolve("$cpPackageName.exe")
                 foundNativeExe.copyTo(destExe, overwrite = true)
@@ -1183,7 +1302,7 @@ val packageWindowsVelopack = tasks.register<Exec>("packageWindowsVelopack") {
                 appDir.resolve("app"),
                 appDir.resolve("runtime/bin"),
             )
-            nativeFiles.forEach { f ->
+            nativeFiles.filterNot { hasNativeApp && it.name == "rust_lib_flick_player.dll" }.forEach { f ->
                 targets.forEach { targetDir ->
                     targetDir.mkdirs()
                     val dest = targetDir.resolve(f.name)
@@ -1202,7 +1321,9 @@ val packageWindowsVelopack = tasks.register<Exec>("packageWindowsVelopack") {
             .associateBy { it.name }
             .values
 
-        if (fontFiles.isNotEmpty()) {
+        if (hasNativeApp) {
+            stageWindowsNativeAssets(appDir)
+        } else if (fontFiles.isNotEmpty()) {
             val fontTargets = listOf(
                 appDir.resolve("fonts"),
                 appDir.resolve("resources/fonts"),
@@ -1238,28 +1359,7 @@ tasks.matching { it.name == "packageGraalvmNative" }.configureEach {
     doLast {
         val graalvmAppDir = layout.buildDirectory.dir("compose/binaries/main/graalvm-app/$cpPackageName").get().asFile
         if (graalvmAppDir.isDirectory) {
-            val nativeFiles = listOf(
-                project.file("native"),
-                rootProject.file("native"),
-            ).filter { it.isDirectory }
-                .flatMap { it.listFiles()?.filter { f -> f.isFile }?.toList() ?: emptyList() }
-                .associateBy { it.name }
-                .values
-
-            if (nativeFiles.isNotEmpty()) {
-                val targets = listOf(
-                    graalvmAppDir,
-                    graalvmAppDir.resolve("native"),
-                )
-                nativeFiles.forEach { f ->
-                    targets.forEach { targetDir ->
-                        targetDir.mkdirs()
-                        val dest = targetDir.resolve(f.name)
-                        f.copyTo(dest, overwrite = true)
-                        logger.lifecycle("已注入原生动态库至 GraalVM 应用镜像: ${f.name} -> ${dest.absolutePath}")
-                    }
-                }
-            }
+            stageWindowsNativeAssets(graalvmAppDir)
         }
     }
 }

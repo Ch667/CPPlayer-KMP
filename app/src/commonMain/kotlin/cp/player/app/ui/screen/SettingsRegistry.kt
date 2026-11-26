@@ -21,10 +21,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SettingsEthernet
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Subtitles
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WavingHand
 import androidx.compose.ui.graphics.vector.ImageVector
-import cafe.adriel.voyager.core.screen.Screen
+import cp.player.app.ui.navigation.RoutePage
 import cp.player.app.i18n.CpStrings
 import cp.player.app.platform.isAndroidPlatform
 import cp.player.app.version.AppVersion
@@ -99,7 +98,7 @@ data class SettingsEntry(
     val androidOnly: Boolean = false,
     val debugOnly: Boolean = false,
     val subItems: List<SettingsSubItem> = emptyList(),
-    val screen: (targetSettingId: String?) -> Screen,
+    val screen: (targetSettingId: String?) -> RoutePage,
 )
 
 /**
@@ -113,6 +112,7 @@ data class SettingsEntry(
  * @param desktopOnly 仅桌面端适用
  * @param androidOnly 仅 Android 端适用
  * @param debugOnly 仅 Debug 构建展示
+ * @param hideOnTablet 平板导航布局下不适用
  */
 data class SettingsSubItem(
     val id: String,
@@ -123,15 +123,17 @@ data class SettingsSubItem(
     val desktopOnly: Boolean = false,
     val androidOnly: Boolean = false,
     val debugOnly: Boolean = false,
+    val hideOnTablet: Boolean = false,
 )
 
 /**
- * 当前平台与渠道下可见的具体设置子项。
+ * 当前平台、布局与渠道下可见的具体设置子项。
  */
-fun SettingsEntry.visibleSubItems(): List<SettingsSubItem> = subItems.filter { item ->
+fun SettingsEntry.visibleSubItems(isTablet: Boolean = false): List<SettingsSubItem> = subItems.filter { item ->
     (!item.desktopOnly || !isAndroidPlatform()) &&
         (!item.androidOnly || isAndroidPlatform()) &&
-        (!item.debugOnly || AppVersion.isDesktopRunOrDebug)
+        (!item.debugOnly || AppVersion.isDesktopRunOrDebug) &&
+        (!item.hideOnTablet || !isTablet)
 }
 
 /**
@@ -175,6 +177,7 @@ private fun generalEntries(): List<SettingsEntry> = listOfNotNull(
         icon = Icons.Filled.Palette,
         accent = SettingsAccent.PRIMARY,
         keywords = listOf(
+            "外观与主题", "appearance",
             "主题", "深色", "浅色", "暗黑", "取色", "配色", "纯黑", "oled", "amoled", "省电", "theme", "dark", "light",
             "动态取色", "莫奈", "monet", "material you", "动效", "转场", "流体", "流光", "背景", "封面飞行",
             "圆角", "字体", "font", "roundness", "专辑", "专辑名", "歌曲列表", "album",
@@ -224,6 +227,13 @@ private fun generalEntries(): List<SettingsEntry> = listOfNotNull(
                 sectionOf = { "界面动效与视觉表现" },
             ),
             SettingsSubItem(
+                id = "appearance_fluid_background_dark_overlay",
+                titleOf = { it.appearance.fluidBackgroundDarkOverlay },
+                subtitleOf = { it.appearance.fluidBackgroundDarkOverlayNote },
+                keywords = listOf("流体", "暗色", "深色", "遮罩", "fluid", "dark", "overlay"),
+                sectionOf = { it.appearance.sectionMotion },
+            ),
+            SettingsSubItem(
                 id = "appearance_fluid_background_fps",
                 titleOf = { it.appearance.fluidBackgroundFps },
                 subtitleOf = { it.appearance.fluidBackgroundFpsNote },
@@ -236,6 +246,14 @@ private fun generalEntries(): List<SettingsEntry> = listOfNotNull(
                 subtitleOf = { it.appearance.autoHideBottomBarNote },
                 keywords = listOf("底栏", "播放条", "隐藏底栏", "自动隐藏", "收起底栏", "全屏", "沉浸", "bottom bar"),
                 sectionOf = { "界面动效与视觉表现" },
+            ),
+            SettingsSubItem(
+                id = "appearance_predictive_back",
+                titleOf = { it.appearance.predictiveBack },
+                subtitleOf = { it.appearance.predictiveBackNote },
+                keywords = listOf("预测性返回", "手势返回", "侧滑返回", "边缘返回", "返回动画", "predictive back", "gesture", "back"),
+                sectionOf = { "界面动效与视觉表现" },
+                androidOnly = true,
             ),
             SettingsSubItem(
                 id = "appearance_show_song_album",
@@ -259,6 +277,14 @@ private fun generalEntries(): List<SettingsEntry> = listOfNotNull(
                 keywords = listOf("播放界面", "歌词翻译", "沉浸歌词", "恢复默认", "播放器"),
                 sectionOf = { it.appearance.sectionMobile },
                 androidOnly = true,
+            ),
+            SettingsSubItem(
+                id = "appearance_desktop_player_volume",
+                titleOf = { it.appearance.desktopPlayerVolume },
+                subtitleOf = { it.appearance.desktopPlayerVolumeNote },
+                keywords = listOf("音量", "控制条", "桌面", "volume", "slider", "desktop"),
+                sectionOf = { it.appearance.desktopPlayerControls },
+                desktopOnly = true,
             ),
             SettingsSubItem(
                 id = "mobile_player_lyrics_mini",
@@ -363,6 +389,38 @@ private fun generalEntries(): List<SettingsEntry> = listOfNotNull(
                 desktopOnly = true,
                 debugOnly = true,
             ),
+            SettingsSubItem(
+                id = "navigation_dynamic_tab",
+                titleOf = { "用「动态」替代「搜索」tab" },
+                subtitleOf = { "第 2 个 tab 变成动态，搜索移到顶栏动作位" },
+                keywords = listOf("动态", "搜索", "tab", "替代", "顶栏", "导航", "dynamic", "search", "navigation"),
+                sectionOf = { "主 tab" },
+                hideOnTablet = true,
+            ),
+            SettingsSubItem(
+                id = "navigation_hide_dynamic",
+                titleOf = { "隐藏「动态」入口" },
+                subtitleOf = { "导航入口隐藏，动态数据与页面仍然可用" },
+                keywords = listOf("动态", "隐藏", "入口", "导航", "dynamic", "hide", "navigation"),
+                sectionOf = { "入口可见性" },
+                hideOnTablet = true,
+            ),
+            SettingsSubItem(
+                id = "navigation_hide_messages",
+                titleOf = { "隐藏「消息」入口" },
+                subtitleOf = { "隐藏顶栏 / 侧栏 / 底栏的消息入口" },
+                keywords = listOf("消息", "私信", "隐藏", "入口", "导航", "messages", "hide", "navigation"),
+                sectionOf = { "入口可见性" },
+                hideOnTablet = true,
+            ),
+            SettingsSubItem(
+                id = "navigation_provider_support",
+                titleOf = { "音源功能支持清单" },
+                subtitleOf = { "列出动态 / 消息 / 搜索在当前音源是否可用；不支持时对应入口直接隐藏" },
+                keywords = listOf("音源", "支持", "能力", "不支持", "隐藏", "capability", "provider"),
+                sectionOf = { "当前音源的功能支持" },
+                hideOnTablet = true,
+            ),
         ),
         screen = { targetId ->
             if (isAndroidPlatform()) {
@@ -435,6 +493,26 @@ private fun generalEntries(): List<SettingsEntry> = listOfNotNull(
                 ),
                 sectionOf = { "音频输出内核架构" },
                 desktopOnly = true,
+            ),
+            SettingsSubItem(
+                id = "playback_android_usb_exclusive",
+                titleOf = { "USB DAC 独占输出 / 默认 AAudio" },
+                subtitleOf = { "默认使用系统 AAudio 共享输出；开启后仅在播放时独占 USB DAC，不播立即释放" },
+                keywords = listOf(
+                    "aaudio", "usb", "dac", "uac2", "独占", "exclusive", "小尾巴", "释放", "无声",
+                ),
+                sectionOf = { "音频输出内核架构" },
+                androidOnly = true,
+            ),
+            SettingsSubItem(
+                id = "playback_android_usb_auto_resume",
+                titleOf = { "USB 断开 3 秒重连自动恢复播放" },
+                subtitleOf = { "外接 USB 音频设备断开后 3 秒内重连自动恢复播放（跨引擎、跨独占模式生效）" },
+                keywords = listOf(
+                    "usb", "重连", "断开", "自动恢复", "小尾巴", "耳机", "插拔", "reconnect", "resume",
+                ),
+                sectionOf = { "音频输出内核架构" },
+                androidOnly = true,
             ),
             SettingsSubItem(
                 id = "playback_crossfade",
@@ -578,52 +656,6 @@ private fun generalEntries(): List<SettingsEntry> = listOfNotNull(
         ),
         desktopOnly = true,
         screen = { _ -> ShortcutSettingsScreen() },
-    ),
-    SettingsEntry(
-        id = "navigation",
-        group = SettingsGroup.GENERAL,
-        titleOf = { it.settings.itemNavigation.title },
-        subtitleOf = { it.settings.itemNavigation.subtitle },
-        icon = Icons.Filled.Tune,
-        accent = SettingsAccent.SECONDARY,
-        keywords = listOf(
-            "动态", "朋友圈", "社交", "feed", "dynamic", "social",
-            "导航", "入口", "tab", "底部导航", "侧栏", "隐藏入口", "navigation",
-            "消息", "私信", "messages", "chat",
-            "搜索", "search", "替代搜索", "顶栏",
-            "音源不支持", "能力", "capability", "隐藏功能",
-        ),
-        subItems = listOf(
-            SettingsSubItem(
-                id = "navigation_dynamic_tab",
-                titleOf = { "用「动态」替代「搜索」tab" },
-                subtitleOf = { "第 2 个 tab 变成动态，搜索移到顶栏动作位" },
-                keywords = listOf("动态", "搜索", "tab", "替代", "顶栏", "dynamic", "search"),
-                sectionOf = { "主 tab" },
-            ),
-            SettingsSubItem(
-                id = "navigation_hide_dynamic",
-                titleOf = { "隐藏「动态」入口" },
-                subtitleOf = { "导航入口隐藏，动态数据与页面仍然可用" },
-                keywords = listOf("动态", "隐藏", "入口", "dynamic", "hide"),
-                sectionOf = { "入口可见性" },
-            ),
-            SettingsSubItem(
-                id = "navigation_hide_messages",
-                titleOf = { "隐藏「消息」入口" },
-                subtitleOf = { "隐藏顶栏 / 侧栏 / 底栏的消息入口" },
-                keywords = listOf("消息", "私信", "隐藏", "入口", "messages", "hide"),
-                sectionOf = { "入口可见性" },
-            ),
-            SettingsSubItem(
-                id = "navigation_provider_support",
-                titleOf = { "音源功能支持清单" },
-                subtitleOf = { "列出动态 / 消息 / 搜索在当前音源是否可用；不支持时对应入口直接隐藏" },
-                keywords = listOf("音源", "支持", "能力", "不支持", "隐藏", "capability", "provider"),
-                sectionOf = { "当前音源的功能支持" },
-            ),
-        ),
-        screen = { targetId -> NavigationSettingsScreen(targetId) },
     ),
     // A2UI 入口暂时下线：与播放器里的两个入口共用同一个开关。
     // 恢复时把 `A2UI_ENTRY_ENABLED` 改回 true 即可，不要在这里单独删/加。

@@ -1,5 +1,7 @@
 package cp.player.core.provider.typed
 
+import cp.player.core.provider.HostTrafficPolicy
+import cp.player.core.util.currentTimeMillis
 import cp.player.sdk.*
 import io.ktor.http.Url
 import kotlinx.coroutines.*
@@ -38,18 +40,47 @@ class ProviderHost(
     private val adapter: MusicProvider,
     private val isCurrent: () -> Boolean = { true },
     private val timeoutMs: Long = 15_000,
-    maxConcurrency: Int = 4,
+    maxConcurrency: Int = MAX_CONCURRENCY,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private val sessionJob = SupervisorJob()
     private val scope = CoroutineScope(dispatcher + sessionJob)
     private val permits: Semaphore
     private val closeMutex = Mutex()
+    private val cacheLock = Any()
+    private val readCache = LinkedHashMap<ReadKey, CachedReadEntry>(48, 0.75f, true)
+    private val inflightReads = HashMap<ReadKey, InflightRead>()
     private var disposed = false
     val isActive: Boolean get() = sessionJob.isActive
-    init { require(timeoutMs > 0); require(maxConcurrency in 1..16); permits = Semaphore(maxConcurrency) }
+    init { require(timeoutMs > 0); require(maxConcurrency in 1..MAX_CONCURRENCY); permits = Semaphore(maxConcurrency) }
 
-    fun invalidate() { sessionJob.cancel(CancellationException("Provider session retired")) }
+    fun invalidate() {
+        clearReadCache()
+        sessionJob.cancel(CancellationException("Provider session retired"))
+    }
+
+    /** 释放非热点只读元缓存，降低托盘后台常驻存活集。 */
+    fun trimCache() {
+        val now = currentTimeMillis()
+        synchronized(cacheLock) {
+            val iter = readCache.entries.iterator()
+            while (iter.hasNext()) {
+                val e = iter.next().value
+                if (now - e.storedAtMs >= e.staleGraceMs) iter.remove()
+            }
+            while (readCache.size > MAX_TRIMMED_READ_CACHE_ENTRIES) {
+                readCache.remove(readCache.keys.first())
+            }
+        }
+    }
+
+    internal fun clearReadCache() {
+        synchronized(cacheLock) {
+            readCache.clear()
+            // Existing callers can finish, but new readers must not join a pre-mutation read.
+            inflightReads.clear()
+        }
+    }
     private fun fence() {
         sessionJob.ensureActive()
         if (!isCurrent()) throw CancellationException("Provider session changed")
@@ -91,10 +122,117 @@ class ProviderHost(
         requireCapability(capability)
         action(adapter)
     }
+    internal suspend fun <T : Any> callExtendedRead(
+        capability: String,
+        request: Any,
+        ttlMs: Long,
+        action: suspend (MusicProvider) -> T,
+    ): T = cachedRead(capability, request, ttlMs) {
+        requireCapability(capability)
+        action(adapter)
+    }
+
+    private suspend fun <T : Any> cachedRead(
+        op: String,
+        key: Any,
+        ttlMs: Long,
+        block: suspend () -> T,
+    ): T {
+        fence()
+        val cacheKey = ReadKey(op, key)
+        val now = currentTimeMillis()
+        val staleGraceMs = ttlMs * 3L
+        val deferBackground = HostTrafficPolicy.shouldDeferNetworkFallback()
+
+        val entry = synchronized(cacheLock) {
+            val entry = readCache[cacheKey]
+            if (entry != null) {
+                val age = now - entry.storedAtMs
+                @Suppress("UNCHECKED_CAST")
+                if (age < entry.ttlMs || (deferBackground && age < entry.staleGraceMs)) {
+                    return entry.value as T
+                }
+                if (age >= entry.staleGraceMs) {
+                    readCache.remove(cacheKey)
+                }
+            }
+            val existing = inflightReads[cacheKey]
+            if (existing != null) {
+                existing.waiters++
+                existing
+            } else {
+                val created = InflightRead()
+                inflightReads[cacheKey] = created
+                created.task = scope.async(start = CoroutineStart.LAZY) {
+                    try {
+                        val value = call { block() }
+                        synchronized(cacheLock) {
+                            if (ttlMs > 0 && inflightReads[cacheKey] === created && sessionJob.isActive && isCurrent()) {
+                                readCache[cacheKey] = CachedReadEntry(value, currentTimeMillis(), ttlMs, staleGraceMs)
+                                while (readCache.size > MAX_READ_CACHE_ENTRIES) {
+                                    readCache.remove(readCache.keys.first())
+                                }
+                            }
+                        }
+                        value
+                    } finally {
+                        synchronized(cacheLock) {
+                            if (inflightReads[cacheKey] === created) inflightReads.remove(cacheKey)
+                        }
+                    }
+                }
+                created
+            }
+        }
+
+        val deferred = entry.task
+        try {
+            @Suppress("UNCHECKED_CAST")
+            val result = deferred.await() as T
+            fence()
+            return result
+        } finally {
+            val cancel = synchronized(cacheLock) {
+                entry.waiters--
+                (entry.waiters == 0 && !deferred.isCompleted).also {
+                    if (it && inflightReads[cacheKey] === entry) inflightReads.remove(cacheKey)
+                }
+            }
+            if (cancel) {
+                withContext(NonCancellable) {
+                    deferred.cancelAndJoin()
+                }
+            }
+        }
+    }
+
+    private data class ReadKey(val operation: String, val request: Any)
+
+    private class CachedReadEntry(
+        val value: Any,
+        val storedAtMs: Long,
+        val ttlMs: Long,
+        val staleGraceMs: Long,
+    )
+
+    private class InflightRead {
+        var waiters = 1
+        lateinit var task: Deferred<Any>
+    }
+
+    private companion object {
+        const val MAX_CONCURRENCY = 8
+        const val MAX_READ_CACHE_ENTRIES = 48
+        const val MAX_TRIMMED_READ_CACHE_ENTRIES = 8
+        const val SHORT_TTL_MS = 60_000L
+        const val MEDIUM_TTL_MS = 180_000L
+        const val LONG_TTL_MS = 300_000L
+    }
+
     suspend fun search(request: SearchRequest): TrackPage {
         require(request.keyword.isNotBlank() && request.keyword.length <= 4096)
         require(request.limit in 1..MAX_ITEMS && request.offset >= 0)
-        return call {
+        return cachedRead("search", "${request.keyword}|${request.limit}|${request.offset}", SHORT_TTL_MS) {
             requireCapability(Capability.SEARCH)
             adapter.search(request).also { page ->
                 require(page.items.size <= request.limit)
@@ -107,7 +245,7 @@ class ProviderHost(
     }
     suspend fun get(id: String): Track {
         validateId(id)
-        return call {
+        return cachedRead("track", id, LONG_TTL_MS) {
             requireCapability(Capability.GET)
             adapter.get(IdRequest(id)).also { validateTrack(it); require(it.id == id) }
         }
@@ -152,7 +290,7 @@ class ProviderHost(
     }
     suspend fun getLyrics(id: String): Lyrics {
         validateId(id)
-        return call {
+        return cachedRead("lyrics", id, LONG_TTL_MS) {
             requireCapability(Capability.LYRICS)
             adapter.getLyrics(IdRequest(id)).also {
                 require(it.id == id)
@@ -164,7 +302,7 @@ class ProviderHost(
 
     suspend fun searchPlaylists(request: SearchRequest): PlaylistPage {
         validateSearch(request)
-        return call {
+        return cachedRead("searchPlaylists", "${request.keyword}|${request.limit}|${request.offset}", SHORT_TTL_MS) {
             requireCapability(Capability.SEARCH_PLAYLISTS)
             adapter.searchPlaylists(request).also {
                 validatePage(it.items, request.limit, it.total, ::validatePlaylist)
@@ -175,7 +313,7 @@ class ProviderHost(
 
     suspend fun getPlaylist(id: String): Playlist {
         validateId(id)
-        return call {
+        return cachedRead("playlist", id, MEDIUM_TTL_MS) {
             requireCapability(Capability.PLAYLIST)
             adapter.getPlaylist(IdRequest(id)).also {
                 validatePlaylist(it); require(it.id == id); it.write(WireWriter())
@@ -185,7 +323,7 @@ class ProviderHost(
 
     suspend fun getPlaylistTracks(request: PagedIdRequest): TrackPage {
         validatePagedId(request)
-        return call {
+        return cachedRead("playlistTracks", "${request.id}|${request.limit}|${request.offset}", MEDIUM_TTL_MS) {
             requireCapability(Capability.PLAYLIST_TRACKS)
             adapter.getPlaylistTracks(request).also {
                 validatePage(it.items, request.limit, it.total, ::validateTrack)
@@ -196,7 +334,7 @@ class ProviderHost(
 
     suspend fun getUserPlaylists(request: PagedIdRequest): PlaylistPage {
         validatePagedId(request)
-        return call {
+        return cachedRead("userPlaylists", "${request.id}|${request.limit}|${request.offset}", SHORT_TTL_MS) {
             requireCapability(Capability.USER_PLAYLISTS)
             adapter.getUserPlaylists(request).also {
                 validatePage(it.items, request.limit, it.total, ::validatePlaylist)
@@ -207,7 +345,7 @@ class ProviderHost(
 
     suspend fun searchAlbums(request: SearchRequest): AlbumPage {
         validateSearch(request)
-        return call {
+        return cachedRead("searchAlbums", "${request.keyword}|${request.limit}|${request.offset}", SHORT_TTL_MS) {
             requireCapability(Capability.SEARCH_ALBUMS)
             adapter.searchAlbums(request).also {
                 validatePage(it.items, request.limit, it.total, ::validateAlbum)
@@ -218,7 +356,7 @@ class ProviderHost(
 
     suspend fun getAlbum(id: String): AlbumDetails {
         validateId(id)
-        return call {
+        return cachedRead("album", id, LONG_TTL_MS) {
             requireCapability(Capability.ALBUM)
             adapter.getAlbum(IdRequest(id)).also {
                 validateAlbum(it.album); require(it.album.id == id)
@@ -232,7 +370,7 @@ class ProviderHost(
 
     suspend fun searchArtists(request: SearchRequest): ArtistPage {
         validateSearch(request)
-        return call {
+        return cachedRead("searchArtists", "${request.keyword}|${request.limit}|${request.offset}", SHORT_TTL_MS) {
             requireCapability(Capability.SEARCH_ARTISTS)
             adapter.searchArtists(request).also {
                 validatePage(it.items, request.limit, it.total, ::validateCatalogArtist)
@@ -243,7 +381,7 @@ class ProviderHost(
 
     suspend fun getArtist(id: String): CatalogArtist {
         validateId(id)
-        return call {
+        return cachedRead("artist", id, LONG_TTL_MS) {
             requireCapability(Capability.ARTIST)
             adapter.getArtist(IdRequest(id)).also {
                 validateCatalogArtist(it); require(it.id == id); it.write(WireWriter())
@@ -253,7 +391,7 @@ class ProviderHost(
 
     suspend fun getArtistTracks(request: PagedIdRequest): TrackPage {
         validatePagedId(request)
-        return call {
+        return cachedRead("artistTracks", "${request.id}|${request.limit}|${request.offset}", MEDIUM_TTL_MS) {
             requireCapability(Capability.ARTIST_TRACKS)
             adapter.getArtistTracks(request).also {
                 validatePage(it.items, request.limit, it.total, ::validateTrack)
@@ -264,7 +402,7 @@ class ProviderHost(
 
     suspend fun getArtistAlbums(request: PagedIdRequest): AlbumPage {
         validatePagedId(request)
-        return call {
+        return cachedRead("artistAlbums", "${request.id}|${request.limit}|${request.offset}", LONG_TTL_MS) {
             requireCapability(Capability.ARTIST_ALBUMS)
             adapter.getArtistAlbums(request).also {
                 validatePage(it.items, request.limit, it.total, ::validateAlbum)
@@ -275,7 +413,7 @@ class ProviderHost(
 
     suspend fun getRecommendedSongs(request: RecommendationsRequest): TrackPage {
         require(request.limit in 1..MAX_ITEMS)
-        return call {
+        return cachedRead("recSongs", "${request.limit}|${request.mode}", MEDIUM_TTL_MS) {
             requireCapability(Capability.RECOMMENDED_SONGS)
             adapter.getRecommendedSongs(request).also {
                 validatePage(it.items, request.limit, it.total, ::validateTrack)
@@ -286,7 +424,7 @@ class ProviderHost(
 
     suspend fun getRecommendedPlaylists(request: RecommendationsRequest): PlaylistPage {
         require(request.limit in 1..MAX_ITEMS)
-        return call {
+        return cachedRead("recPlaylists", "${request.limit}|${request.mode}", MEDIUM_TTL_MS) {
             requireCapability(Capability.RECOMMENDED_PLAYLISTS)
             adapter.getRecommendedPlaylists(request).also {
                 validatePage(it.items, request.limit, it.total, ::validatePlaylist)
@@ -297,7 +435,7 @@ class ProviderHost(
 
     suspend fun getPersonalizedPlaylists(request: RecommendationsRequest): PlaylistPage {
         require(request.limit in 1..MAX_ITEMS)
-        return call {
+        return cachedRead("persPlaylists", "${request.limit}|${request.mode}", MEDIUM_TTL_MS) {
             requireCapability(Capability.PERSONALIZED_PLAYLISTS)
             adapter.getPersonalizedPlaylists(request).also {
                 validatePage(it.items, request.limit, it.total, ::validatePlaylist)
@@ -308,7 +446,7 @@ class ProviderHost(
 
     suspend fun getTopPlaylists(request: PlaylistBrowseRequest): PlaylistPage {
         validatePlaylistBrowse(request)
-        return call {
+        return cachedRead("topPlaylists", "${request.category}|${request.order}|${request.limit}", MEDIUM_TTL_MS) {
             requireCapability(Capability.TOP_PLAYLISTS)
             adapter.getTopPlaylists(request).also {
                 validatePage(it.items, request.limit, it.total, ::validatePlaylist)
@@ -319,7 +457,7 @@ class ProviderHost(
 
     suspend fun getHighqualityPlaylists(request: PlaylistBrowseRequest): PlaylistPage {
         validatePlaylistBrowse(request)
-        return call {
+        return cachedRead("hqPlaylists", "${request.category}|${request.order}|${request.limit}", MEDIUM_TTL_MS) {
             requireCapability(Capability.HIGHQUALITY_PLAYLISTS)
             adapter.getHighqualityPlaylists(request).also {
                 validatePage(it.items, request.limit, it.total, ::validatePlaylist)
@@ -330,7 +468,7 @@ class ProviderHost(
 
     suspend fun getPersonalizedNewSongs(request: RecommendationsRequest): TrackPage {
         require(request.limit in 1..MAX_ITEMS)
-        return call {
+        return cachedRead("persNewSongs", "${request.limit}|${request.mode}", MEDIUM_TTL_MS) {
             requireCapability(Capability.RECOMMENDATION_NEW_SONGS)
             adapter.getPersonalizedNewSongs(request).also {
                 validatePage(it.items, request.limit, it.total, ::validateTrack)
@@ -339,7 +477,7 @@ class ProviderHost(
         }
     }
 
-    suspend fun getBanners(): List<Banner> = call {
+    suspend fun getBanners(): List<Banner> = cachedRead("banners", "all", MEDIUM_TTL_MS) {
         requireCapability(Capability.DISCOVERY_BANNERS)
         adapter.getBanners(Bytes(byteArrayOf())).also { page ->
             require(page.items.size <= MAX_ITEMS)
@@ -353,7 +491,7 @@ class ProviderHost(
         }.items
     }
 
-    suspend fun getRankings(): List<Ranking> = call {
+    suspend fun getRankings(): List<Ranking> = cachedRead("rankings", "all", MEDIUM_TTL_MS) {
         requireCapability(Capability.DISCOVERY_RANKINGS)
         adapter.getRankings(Bytes(byteArrayOf())).also { page ->
             require(page.items.size <= MAX_ITEMS)
@@ -366,7 +504,7 @@ class ProviderHost(
         }.items
     }
 
-    suspend fun getHotSearches(): List<Keyword> = call {
+    suspend fun getHotSearches(): List<Keyword> = cachedRead("hotSearches", "all", MEDIUM_TTL_MS) {
         requireCapability(Capability.HOT_SEARCHES)
         adapter.getHotSearches(Bytes(byteArrayOf())).also { page ->
             require(page.items.size <= MAX_ITEMS)
@@ -380,7 +518,7 @@ class ProviderHost(
     suspend fun getSearchSuggestions(request: SearchSuggestionRequest): SuggestionPage {
         require(request.keyword.isNotBlank() && request.keyword.length <= 4096)
         require(request.limit in 1..50)
-        return call {
+        return cachedRead("searchSuggest", "${request.keyword}|${request.limit}", SHORT_TTL_MS) {
             requireCapability(Capability.SEARCH_SUGGESTIONS)
             adapter.getSearchSuggestions(request).also {
                 require(it.items.size <= request.limit)
@@ -392,7 +530,7 @@ class ProviderHost(
 
     suspend fun getNewAlbums(request: AlbumBrowseRequest): AlbumPage {
         require(request.area.length in 1..32 && request.limit in 1..MAX_ITEMS)
-        return call {
+        return cachedRead("newAlbums", "${request.area}|${request.limit}", MEDIUM_TTL_MS) {
             requireCapability(Capability.DISCOVERY_NEW_ALBUMS)
             adapter.getNewAlbums(request).also {
                 validatePage(it.items, request.limit, it.total, ::validateAlbum)
@@ -403,7 +541,7 @@ class ProviderHost(
 
     suspend fun getTopSongs(request: TopSongsRequest): TrackPage {
         require(request.region in setOf(0, 7, 8, 16, 96) && request.limit in 1..MAX_ITEMS)
-        return call {
+        return cachedRead("topSongs", "${request.region}|${request.limit}", MEDIUM_TTL_MS) {
             requireCapability(Capability.DISCOVERY_TOP_SONGS)
             adapter.getTopSongs(request).also {
                 validatePage(it.items, request.limit, it.total, ::validateTrack)
@@ -414,7 +552,7 @@ class ProviderHost(
 
     suspend fun getHotArtists(request: RecommendationsRequest): ArtistPage {
         require(request.limit in 1..MAX_ITEMS)
-        return call {
+        return cachedRead("hotArtists", "${request.limit}|${request.mode}", MEDIUM_TTL_MS) {
             requireCapability(Capability.DISCOVERY_HOT_ARTISTS)
             adapter.getHotArtists(request).also {
                 validatePage(it.items, request.limit, it.total, ::validateCatalogArtist)
@@ -445,7 +583,7 @@ class ProviderHost(
     suspend fun getSimilarSongs(request: SimilarSongsRequest): TrackPage {
         validateId(request.id)
         require(request.limit in 1..MAX_ITEMS)
-        return call {
+        return cachedRead("similarSongs", "${request.id}|${request.limit}", LONG_TTL_MS) {
             requireCapability(Capability.SIMILAR_SONGS)
             adapter.getSimilarSongs(request).also {
                 validatePage(it.items, request.limit, it.total, ::validateTrack)
@@ -469,7 +607,7 @@ class ProviderHost(
 
     suspend fun getUserProfile(request: UserRequest): UserProfile {
         validateId(request.id)
-        return call {
+        return cachedRead("userProfile", request.id, MEDIUM_TTL_MS) {
             requireCapability(Capability.ACCOUNT_PROFILE)
             adapter.getUserProfile(request).also {
                 require(it.id == request.id && it.nickname.isNotBlank() && it.nickname.length <= 4096)
@@ -526,7 +664,7 @@ class ProviderHost(
     suspend fun getUserRecords(request: UserRecordsRequest): TrackPage {
         validateId(request.id)
         require(request.type in 0..1 && request.limit in 1..MAX_ITEMS)
-        return call {
+        return cachedRead("userRecords", "${request.id}|${request.type}|${request.limit}", SHORT_TTL_MS) {
             requireCapability(Capability.ACCOUNT_RECORDS)
             adapter.getUserRecords(request).also {
                 validatePage(it.items, request.limit, it.total, ::validateTrack)
@@ -537,7 +675,11 @@ class ProviderHost(
 
     suspend fun getUserFollows(request: UserListRequest, followers: Boolean): ArtistPage {
         validateUserList(request)
-        return call {
+        return cachedRead(
+            if (followers) "userFolloweds" else "userFollows",
+            "${request.id}|${request.limit}|${request.offset}",
+            MEDIUM_TTL_MS,
+        ) {
             requireCapability(if (followers) Capability.ACCOUNT_FOLLOWEDS else Capability.ACCOUNT_FOLLOWS)
             (if (followers) adapter.getUserFolloweds(request) else adapter.getUserFollows(request)).also {
                 validatePage(it.items, request.limit, it.total, ::validateCatalogArtist)
@@ -571,7 +713,7 @@ class ProviderHost(
 
     suspend fun getUserAlbums(request: UserListRequest): AlbumPage {
         validateUserList(request)
-        return call {
+        return cachedRead("userAlbums", "${request.id}|${request.limit}|${request.offset}", MEDIUM_TTL_MS) {
             requireCapability(Capability.ACCOUNT_ALBUMS)
             adapter.getUserAlbums(request).also {
                 validatePage(it.items, request.limit, it.total, ::validateAlbum)
@@ -637,6 +779,7 @@ class ProviderHost(
         action().also {
             it.id?.let(::validateId)
             it.write(WireWriter())
+            clearReadCache()
         }
     }
 

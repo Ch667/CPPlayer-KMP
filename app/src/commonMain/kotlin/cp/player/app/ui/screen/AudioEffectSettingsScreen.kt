@@ -23,11 +23,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import cp.player.app.ui.component.CpToggleChip
 import cp.player.app.ui.theme.cpNestedSurface
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -54,7 +53,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import cafe.adriel.voyager.core.screen.Screen
+import cp.player.app.ui.navigation.RoutePage
 import cp.player.app.AppModel
 import cp.player.app.i18n.cpStrings
 import cp.player.app.platform.isAndroidPlatform
@@ -95,7 +94,7 @@ import kotlin.math.sqrt
  * 4. **参数频点微调折叠面板**：支持逐段调整中心频点（Hz）；
  * 5. **混音与响度均衡**：声道平衡调节与音量归一化/防爆音控制。
  */
-class AudioEffectSettingsScreen : Screen {
+class AudioEffectSettingsScreen : RoutePage {
 
     @Composable
     override fun Content() {
@@ -588,37 +587,17 @@ private fun EqualizerPresetChipsRow(
     ) {
         PRESET_ORDER.forEach { preset ->
             val isSelected = selectedPreset == preset
-            FilterChip(
-                selected = isSelected,
-                onClick = { onSelectPreset(preset) },
-                label = {
-                    CpText(
-                        text = presetName(s, preset),
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ),
-                shape = androidx.compose.foundation.shape.CircleShape,
+            CpToggleChip(
+                checked = isSelected,
+                onCheckedChange = { onSelectPreset(preset) },
+                label = presetName(s, preset),
             )
         }
         if (selectedPreset == AudioEffectPreset.CUSTOM) {
-            FilterChip(
-                selected = true,
-                onClick = {},
-                label = {
-                    CpText(
-                        text = s.audioEffect.presetCustom,
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ),
-                shape = androidx.compose.foundation.shape.CircleShape,
+            CpToggleChip(
+                checked = true,
+                onCheckedChange = {},
+                label = s.audioEffect.presetCustom,
             )
         }
     }

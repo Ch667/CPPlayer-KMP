@@ -20,6 +20,8 @@ import cp.player.core.lyricpush.XiaomiSuperIslandConfig
 import cp.player.core.monitor.HealthMonitor
 import cp.player.core.playback.AutoPlayCustomType
 import cp.player.core.playback.AutoPlayMode
+import cp.player.core.playback.FlickEngineSettings
+import cp.player.core.playback.FlickEngineToggles
 import cp.player.core.playback.PlaybackController
 import cp.player.core.playback.PlaybackSessionSettings
 import cp.player.core.provider.BackendProvider
@@ -27,6 +29,8 @@ import cp.player.core.provider.ProviderCookieStorage
 import cp.player.core.util.SettingsStorage
 import cp.player.core.util.runCatchingExceptCancellation
 import cp.player.app.repository.AuthRepository
+import cp.player.app.repository.LoginSessionCheck
+import cp.player.app.repository.toLoginSessionCheck
 import cp.player.app.repository.MusicRepository
 import cp.player.app.repository.MusicRepositoryProvider
 import cp.player.app.repository.SocialRepository
@@ -288,6 +292,17 @@ object AppModel {
     val musicRepository: MusicRepository get() = musicRepositoryProvider.get()
 
     /**
+     * 后台/最小化到托盘时主动压缩应用级内存缓存，释放非活跃列表/歌单/歌词缓存以配合低堆运行。
+     */
+    fun trimMemoryForBackground() {
+        runCatching { playback.trimInMemoryCaches() }
+        runCatching { backend.trimProviderHostCaches() }
+        modelScope.launch {
+            runCatching { musicRepository.trimReadCachesForLowMemory() }
+        }
+    }
+
+    /**
      * 私信 / 联系人门面。
      *
      * 每次访问新建 —— 它只是统一音源之上的一层**无状态**映射包装；
@@ -429,6 +444,12 @@ object AppModel {
     fun markInitialized() { _initialized.value = true }
 
     fun retryBackendBootstrap() {
+        if (backend.state is BackendState.Error) {
+            val res = backend.retryActivation()
+            if (res is BackendResult.Success) {
+                onActiveProviderActivated(syncQuality = true)
+            }
+        }
         _initialized.value = true
     }
 
@@ -446,6 +467,8 @@ object AppModel {
     private val KEY_PURE_BLACK = "pure_black"
     private val KEY_FLUID_BACKGROUND = "fluid_background"
     private val KEY_FLUID_BACKGROUND_FPS = "fluid_background_fps"
+    private val KEY_FLUID_BACKGROUND_DARK_OVERLAY = "fluid_background_dark_overlay"
+    private val KEY_DESKTOP_PLAYER_VOLUME_VISIBLE = "desktop_player_volume_visible"
     private val KEY_PLAYBACK_QUALITY = "playback_quality"
     private val KEY_METERED_PLAYBACK_QUALITY = "playback_quality_metered"
     private val KEY_LISTEN_TOGETHER_ADD_NEXT = "listen_together_add_next"
@@ -577,6 +600,26 @@ object AppModel {
     fun setFluidBackground(enabled: Boolean) {
         settings.putString(KEY_FLUID_BACKGROUND, enabled.toString())
         _fluidBackground.value = enabled
+    }
+
+    private val _fluidBackgroundDarkOverlay = MutableStateFlow(
+        settings.getString(KEY_FLUID_BACKGROUND_DARK_OVERLAY)?.toBooleanStrictOrNull() ?: true,
+    )
+    val fluidBackgroundDarkOverlayFlow = _fluidBackgroundDarkOverlay.asStateFlow()
+
+    fun setFluidBackgroundDarkOverlay(enabled: Boolean) {
+        settings.putString(KEY_FLUID_BACKGROUND_DARK_OVERLAY, enabled.toString())
+        _fluidBackgroundDarkOverlay.value = enabled
+    }
+
+    private val _desktopPlayerVolumeVisible = MutableStateFlow(
+        settings.getString(KEY_DESKTOP_PLAYER_VOLUME_VISIBLE)?.toBooleanStrictOrNull() ?: true,
+    )
+    val desktopPlayerVolumeVisibleFlow = _desktopPlayerVolumeVisible.asStateFlow()
+
+    fun setDesktopPlayerVolumeVisible(visible: Boolean) {
+        settings.putString(KEY_DESKTOP_PLAYER_VOLUME_VISIBLE, visible.toString())
+        _desktopPlayerVolumeVisible.value = visible
     }
 
     private val _fluidBackgroundFps = MutableStateFlow(fluidBackgroundFps())
@@ -837,6 +880,51 @@ object AppModel {
         runCatching { playback.reloadEngine() }
     }
 
+    // ============ Android USB DAC 独占 & 3 秒重连恢复（持久化） ============
+
+    private val _androidUsbExclusive = MutableStateFlow(PlaybackSessionSettings.androidUsbExclusive(settings))
+
+    /** Android UAC2 USB 硬件独占开关（默认 false，默认走 AAudio）。 */
+    val androidUsbExclusiveFlow: StateFlow<Boolean> = _androidUsbExclusive.asStateFlow()
+
+    fun setAndroidUsbExclusive(enabled: Boolean) {
+        settings.putString(PlaybackSessionSettings.KEY_ANDROID_USB_EXCLUSIVE, enabled.toString())
+        _androidUsbExclusive.value = enabled
+        runCatching { playback.reloadOutputRouting() }
+    }
+
+    private val _androidUsbAutoResume = MutableStateFlow(PlaybackSessionSettings.androidUsbAutoResume(settings))
+
+    /** Android USB 断开后 3 秒内重连自动恢复播放开关（跨引擎、跨独占生效）。 */
+    val androidUsbAutoResumeFlow: StateFlow<Boolean> = _androidUsbAutoResume.asStateFlow()
+
+    fun setAndroidUsbAutoResume(enabled: Boolean) {
+        settings.putString(PlaybackSessionSettings.KEY_ANDROID_USB_AUTO_RESUME, enabled.toString())
+        _androidUsbAutoResume.value = enabled
+    }
+
+    // ============ Flick 引擎硬件选项（持久化） ============
+
+    private val _flickDsdMode = MutableStateFlow(FlickEngineSettings.dsdMode(settings))
+
+    /** DSD 输出模式（0=PCM 抽取 / 1=DoP / 2=Native / 3=Auto）。 */
+    val flickDsdModeFlow: StateFlow<Int> = _flickDsdMode.asStateFlow()
+
+    fun setFlickDsdMode(mode: Int) {
+        val clamped = mode.coerceIn(FlickEngineSettings.DSD_MODE_PCM, FlickEngineSettings.DSD_MODE_AUTO)
+        settings.putString(FlickEngineSettings.KEY_DSD_MODE, clamped.toString())
+        FlickEngineToggles.applyDsdMode(clamped)
+        _flickDsdMode.value = clamped
+    }
+
+    /**
+     * 启动时把引擎硬件选项同步进运行时快照（DSD 模式等）。
+     */
+    fun syncFlickEngineToggles() {
+        FlickEngineToggles.applyFrom(settings)
+        _flickDsdMode.value = FlickEngineToggles.dsdMode
+    }
+
     // ============ 音效（持久化，Android 生效 / 桌面明示不支持） ============
     //
     // 这里只做三件事：
@@ -1012,6 +1100,29 @@ object AppModel {
     fun setBottomBarAutoHide(enabled: Boolean) {
         settings.putString(KEY_BOTTOM_BAR_AUTO_HIDE, enabled.toString())
         _bottomBarAutoHide.value = enabled
+    }
+
+    // ============ 预测性手势返回（持久化） ============
+
+    private const val KEY_PREDICTIVE_BACK_ENABLED = "predictive_back_enabled"
+
+    private val _predictiveBackEnabled = MutableStateFlow(
+        settings.getString(KEY_PREDICTIVE_BACK_ENABLED)?.toBooleanStrictOrNull() ?: true
+    )
+
+    /**
+     * Android 预测性手势返回开关（默认开）。
+     *
+     * 开启后从屏幕边缘侧滑返回时实时预览上一级界面；关闭时仅在手势确认返回后
+     * 执行常规退场动画。
+     */
+    val predictiveBackEnabledFlow: StateFlow<Boolean> = _predictiveBackEnabled.asStateFlow()
+
+    fun predictiveBackEnabled(): Boolean = _predictiveBackEnabled.value
+
+    fun setPredictiveBackEnabled(enabled: Boolean) {
+        settings.putString(KEY_PREDICTIVE_BACK_ENABLED, enabled.toString())
+        _predictiveBackEnabled.value = enabled
     }
 
     // ============ 主导航入口（持久化） ============
@@ -2065,6 +2176,14 @@ object AppModel {
      */
     fun refreshUserProfile() {
         profileRefreshJob?.cancel()
+        if (activeProvider() == null) {
+            unreadRefreshJob?.cancel()
+            unreadRefreshJob = null
+            _userProfile.value = null
+            _unreadMessages.value = 0
+            syncMessageWatch()
+            return
+        }
         // 弱网离线优化：不清空既有资料，若当前尚未加载资料则先从 AccountStore 恢复缓存，
         // 确保离线或弱网启动时不会闪烁或显示「未登录」。
         if (_userProfile.value == null) {
@@ -2083,12 +2202,24 @@ object AppModel {
      */
     suspend fun refreshUserProfileAwait(): UserProfile? {
         val provider = activeProvider()
+        if (provider == null) {
+            unreadRefreshJob?.cancel()
+            unreadRefreshJob = null
+            val previousUid = _userProfile.value?.resourceId
+            _userProfile.value = null
+            if (profileResolvedOnce && previousUid != null) bumpAccountGeneration()
+            profileResolvedOnce = true
+            _unreadMessages.value = 0
+            syncMessageWatch()
+            return null
+        }
         val generation = sourceGeneration.value
-        val cookie = provider?.let { cookieStorage.getCookie(it.id) }
-        var isNetworkError = false
+        val credentialRevision = cookieStorage.revision(provider.id, "default")
+        var accountCheck: LoginSessionCheck = LoginSessionCheck.Unavailable
         val profile = try {
             when (val result = backend.unifiedSource.getCurrentAccount()) {
                 is BackendResult.Success -> result.data
+                    .also { accountCheck = if (it.loggedIn) LoginSessionCheck.LoggedIn else LoginSessionCheck.LoggedOut }
                     .takeIf { it.loggedIn }
                     ?.let { session ->
                         val uid = session.userId ?: return@let null
@@ -2099,45 +2230,60 @@ object AppModel {
                             avatarUrl = session.avatarUrl.orEmpty(),
                         )
                     }
-                is BackendResult.Error,
-                is BackendResult.Unsupported -> {
-                    isNetworkError = true
+                is BackendResult.Error -> {
+                    accountCheck = result.toLoginSessionCheck()
                     null
                 }
+                is BackendResult.Unsupported -> null
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (e: Exception) {
-            isNetworkError = true
+        } catch (_: Exception) {
             null
         }
 
         currentCoroutineContext().ensureActive()
         if (activeProvider() !== provider || sourceGeneration.value != generation ||
-            provider?.let { cookieStorage.getCookie(it.id) } != cookie) return null
-        val previousUid = _userProfile.value?.resourceId
-        val finalProfile = if (isNetworkError) {
-            // 弱网或离线异常：保留当前资料或从 AccountStore 恢复，绝不抹除成未登录
-            _userProfile.value ?: getCachedUserProfile()
-        } else {
-            profile
+            cookieStorage.revision(provider.id, "default") != credentialRevision) return null
+        if (accountCheck == LoginSessionCheck.LoggedOut) {
+            cp.player.app.auth.AccountStore.setActive(provider.id, null)
         }
+        val finalProfile = when (accountCheck) {
+            LoginSessionCheck.NetworkError -> _userProfile.value ?: getCachedUserProfile()
+            LoginSessionCheck.Unavailable -> _userProfile.value
+            else -> profile
+        }
+        publishUserProfile(finalProfile, refreshUnread = accountCheck == LoginSessionCheck.LoggedIn)
+        return finalProfile
+    }
+
+    internal suspend fun publishVerifiedAccount(profile: UserProfile) {
+        profileRefreshJob?.cancel()
+        publishUserProfile(profile, refreshUnread = true)
+    }
+
+    internal suspend fun publishSignedOutAccount(providerId: String) {
+        profileRefreshJob?.cancel()
+        cp.player.app.auth.AccountStore.setActive(providerId, null)
+        publishUserProfile(null, refreshUnread = false)
+    }
+
+    private suspend fun publishUserProfile(finalProfile: UserProfile?, refreshUnread: Boolean) {
+        val previousUid = _userProfile.value?.resourceId
         _userProfile.value = finalProfile
         // 换人了 ⇒ 发一次账号代际（见 [accountGeneration]）。首次恢复不算：
         // 那一刻各页面首屏还在用同一份 cookie 拉数据，多发一次就是白拉一遍。
         if (profileResolvedOnce && previousUid != finalProfile?.resourceId) bumpAccountGeneration()
         profileResolvedOnce = true
-        // 收藏列表与账号绑定，资料刷新后同步刷新
-        runCatching { playback.refreshFavorites() }
         // 未读私信数同样绑定账号：登出 / 切号后角标必须跟着变，否则会留着上一个账号的数字。
         if (finalProfile != null) {
-            if (!isNetworkError) refreshUnreadMessages()
+            if (refreshUnread) refreshUnreadMessages()
         } else {
             clearUnreadMessages()
         }
         // 私信轮询同样绑定账号（未登录时必须停）。
         syncMessageWatch()
-        return finalProfile
+        runCatchingExceptCancellation { playback.refreshFavorites() }
     }
 
     /**
@@ -3096,6 +3242,7 @@ object AppModel {
     /** 最近一次转移的状态；`null` = 还没发起过。给设备页与设备选择弹层展示。 */
     private val _handoffState = MutableStateFlow<HandoffState?>(null)
     val handoffStateFlow: StateFlow<HandoffState?> = _handoffState.asStateFlow()
+    private val handoffSending = MutableStateFlow(false)
 
     /**
      * 把本机当前播放**无缝转移**到目标设备。
@@ -3132,32 +3279,39 @@ object AppModel {
         val queueIndex = st.currentIndex
             .takeIf { queue.isNotEmpty() && it in queue.indices && queue[it].mediaId == track.id }
             ?: -1
-        modelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            _handoffState.value = HandoffState.Starting(deviceName)
-            val result = cp.player.core.sync.SyncTransport.handoff(
-                address,
-                cp.player.core.sync.HandoffRequest(
-                    fromDeviceId = deviceIdentity.deviceId,
-                    fromName = deviceIdentity.name,
-                    mediaId = track.id,
-                    trackName = track.name,
-                    artist = track.artist,
-                    positionMs = positionMs,
-                    wasPlaying = wasPlaying,
-                    sentAt = cp.player.core.util.currentTimeMillis(),
-                    queue = queue,
-                    queueIndex = queueIndex,
-                ),
-            )
-            if (result?.accepted == true) {
-                if (wasPlaying) {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+        if (!handoffSending.compareAndSet(expect = false, update = true)) return
+        _handoffState.value = HandoffState.Starting(deviceName)
+        modelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+            try {
+                val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    cp.player.core.sync.SyncTransport.handoff(
+                        address,
+                        cp.player.core.sync.HandoffRequest(
+                            fromDeviceId = deviceIdentity.deviceId,
+                            fromName = deviceIdentity.name,
+                            mediaId = track.id,
+                            trackName = track.name,
+                            artist = track.artist,
+                            positionMs = positionMs,
+                            wasPlaying = wasPlaying,
+                            sentAt = cp.player.core.util.currentTimeMillis(),
+                            queue = queue,
+                            queueIndex = queueIndex,
+                            startTimeoutMs = cp.player.core.sync.HANDOFF_MAX_START_TIMEOUT_MS,
+                        ),
+                    )
+                }
+                if (result?.accepted == true) {
+                    val current = playback.state.value
+                    if (wasPlaying && current.currentTrack?.id == track.id && current.isPlaying) {
                         playback.pause()
                     }
+                    _handoffState.value = HandoffState.Done(deviceName)
+                } else {
+                    _handoffState.value = HandoffState.Failed(result?.message)
                 }
-                _handoffState.value = HandoffState.Done(deviceName)
-            } else {
-                _handoffState.value = HandoffState.Failed(result?.message)
+            } finally {
+                handoffSending.value = false
             }
         }
     }
@@ -3167,46 +3321,24 @@ object AppModel {
      *
      * 播控线程约定与 `IntegrationService` 相同：写操作必须回
      * `Dispatchers.Main`（Android 主线程 / 桌面 EDT）。
-     * 「READY」的判据是 `currentTrack` 变成请求的那首 —— 起流、URL 解析失败
-     * 都过不了这一关，源端就会收到明确的失败并继续播放。
+     * READY 由播放控制器确认。曲名已经显示时，引擎可能还没有收到音频。
      */
     private suspend fun receiveHandoff(req: cp.player.core.sync.HandoffRequest): cp.player.core.sync.HandoffResult {
         val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-            kotlinx.coroutines.withTimeoutOrNull(HANDOFF_START_TIMEOUT_MS) {
-                // 有合法队列 → 用 playQueue 重建整条（当前曲目在下标处开始播，
-                // URL 后台解析不阻塞），「下一首/上一首」在目标端照常可用；
-                // 没有队列（旧对端 / 随机模式边缘态 / 校验降级）→ 单首路径。
-                val wantId = if (req.queue.isNotEmpty() && req.queueIndex >= 0) {
-                    playback.playQueue(req.queue.map { it.mediaId }, startIndex = req.queueIndex)
-                    req.queue[req.queueIndex].mediaId
-                } else {
-                    playback.play(req.mediaId)
-                    req.mediaId
-                }
-                // 等播放引擎真的换上这首（起流失败 / 音源未登录时永远不会换上）
-                val deadline = cp.player.core.util.currentTimeMillis() + HANDOFF_START_TIMEOUT_MS - 500
-                while (cp.player.core.util.currentTimeMillis() < deadline) {
-                    if (playback.state.value.currentTrack?.id == wantId) break
-                    kotlinx.coroutines.delay(150)
-                }
-                val st = playback.state.value
-                if (st.currentTrack?.id != wantId) {
-                    return@withTimeoutOrNull cp.player.core.sync.HandoffResult(
-                        accepted = false,
-                        // ⚠️ 这个串会**跨设备**送到源端显示，而两端语言可能不同。
-                        // 彻底解决要把它改成协议级错误码（core 的改动，影响两端兼容），
-                        // 本批不碰；此处保持既有行为 —— 它是诊断信息，不参与本地化，
-                        // 界面上会作为「对端给出的原因」原样透出。
-                        message = "本机无法播放该曲目（音源未登录或曲目不存在）",
-                    )
-                }
-                if (req.positionMs > 1_500L) playback.seekTo(req.positionMs)
-                if (!req.wasPlaying) playback.pause()
-                cp.player.core.sync.HandoffResult(accepted = true)
-            } ?: cp.player.core.sync.HandoffResult(
-                accepted = false,
-                message = "本机播放未能在时限内启动",
-            )
+            val queueIndex = req.queueIndex.takeIf { req.queue.getOrNull(it)?.mediaId == req.mediaId }
+            val accepted = kotlinx.coroutines.withTimeoutOrNull(req.startTimeoutMs) {
+                playback.takeOverQueue(
+                    mediaIds = if (queueIndex != null) req.queue.map { it.mediaId } else listOf(req.mediaId),
+                    startIndex = queueIndex ?: 0,
+                    positionMs = req.positionMs,
+                    playWhenReady = req.wasPlaying,
+                )
+            }
+            when (accepted) {
+                true -> cp.player.core.sync.HandoffResult(accepted = true)
+                false -> cp.player.core.sync.HandoffResult(message = "本机未能接管该曲目")
+                null -> cp.player.core.sync.HandoffResult(message = "本机播放未能在时限内启动")
+            }
         }
         val from = req.fromName.ifBlank { req.fromDeviceId.take(8) }
         _handoffState.value = if (result.accepted) {
@@ -3217,9 +3349,6 @@ object AppModel {
         }
         return result
     }
-
-    /** 目标端等待「真的出声」的上限；必须小于客户端读超时（10s），给应答留出余量。 */
-    private const val HANDOFF_START_TIMEOUT_MS = 7_000L
 
     private fun startLanSync() {
         if (syncServer == null) {
@@ -3346,29 +3475,52 @@ object AppModel {
 
     fun availableProviders(): List<BackendProvider> = backend.getAvailableProviders()
 
+    private fun onActiveProviderActivated(syncQuality: Boolean = true) {
+        bumpSourceGeneration()
+        if (syncQuality) syncPlaybackQuality()
+        val active = activeProvider()
+        if (active == null) {
+            profileRefreshJob?.cancel()
+            profileRefreshJob = null
+            unreadRefreshJob?.cancel()
+            unreadRefreshJob = null
+            _userProfile.value = null
+            _unreadMessages.value = 0
+            syncMessageWatch()
+            modelScope.launch { runCatching { playback.refreshFavorites() } }
+            return
+        }
+        if (isolationSwitchAccount()) {
+            // 切换瞬间立即切换为新音源自己的本地账号快照（未登录时置 null），
+            // 防止新音源离线/不支持会话接口时把上一个音源的账号资料继续留在界面上。
+            profileRefreshJob?.cancel()
+            profileRefreshJob = null
+            unreadRefreshJob?.cancel()
+            unreadRefreshJob = null
+            _userProfile.value = getCachedUserProfile()
+            _unreadMessages.value = 0
+            syncMessageWatch()
+            refreshUserProfile()
+        }
+    }
+
     /** Repository installation already switched the backend; refresh UI caches without switching twice. */
     internal fun onRepositoryProviderInstalled(providerId: String) {
         if (activeProviderId() != providerId || activeProvider()?.isReady() != true) return
-        bumpSourceGeneration()
-        if (isolationSwitchAccount()) refreshUserProfile()
+        onActiveProviderActivated(syncQuality = true)
     }
 
     fun activeProvider(): BackendProvider? = runCatching { backend.activeProvider() }.getOrNull()
 
     fun onProviderConfigurationChanged(providerId: String) {
         if (activeProviderId() != providerId) return
-        bumpSourceGeneration()
-        refreshUserProfile()
+        onActiveProviderActivated(syncQuality = false)
     }
 
     fun switchProvider(provider: BackendProvider): BackendResult<Unit> {
         val result = backend.switchProvider(provider)
         if (result is BackendResult.Success) {
-            bumpSourceGeneration()
-            syncPlaybackQuality()
-            if (isolationSwitchAccount()) {
-                refreshUserProfile()
-            }
+            onActiveProviderActivated(syncQuality = true)
         }
         return result
     }
@@ -3382,13 +3534,7 @@ object AppModel {
         lastSwitchError = (result as? BackendResult.Error)?.message
             ?: (result as? BackendResult.Unsupported)?.message
         if (result.isSuccess) {
-            bumpSourceGeneration()
-            syncPlaybackQuality()
-            // 音源隔离：cookie 是按音源存的，切过去之后要按**新音源的 cookie** 重新拉资料，
-            // 否则界面会继续显示上一个音源的账号（用户看到的是「切了源但账号没换」）。
-            if (isolationSwitchAccount()) {
-                refreshUserProfile()
-            }
+            onActiveProviderActivated(syncQuality = true)
         }
         return result.isSuccess
     }
@@ -3417,10 +3563,7 @@ object AppModel {
         when (result) {
             is ImportResult.Activated -> {
                 migrateProviderData(result.replacedProviderId, result.provider.id)
-                bumpSourceGeneration()
-                if (isolationSwitchAccount()) {
-                    refreshUserProfile()
-                }
+                onActiveProviderActivated(syncQuality = true)
             }
             is ImportResult.Loaded -> {
                 migrateProviderData(result.replacedProviderId, result.provider.id)
@@ -3440,10 +3583,7 @@ object AppModel {
         when (result) {
             is ImportResult.Activated -> {
                 migrateProviderData(result.replacedProviderId, result.provider.id)
-                bumpSourceGeneration()
-                if (isolationSwitchAccount()) {
-                    refreshUserProfile()
-                }
+                onActiveProviderActivated(syncQuality = true)
             }
             is ImportResult.Loaded -> {
                 migrateProviderData(result.replacedProviderId, result.provider.id)
@@ -3463,10 +3603,7 @@ object AppModel {
         val wasActive = activeProviderId() == id
         val result = backend.deleteModule(id)
         if (result is BackendResult.Success && wasActive) {
-            bumpSourceGeneration()
-            if (isolationSwitchAccount()) {
-                refreshUserProfile()
-            }
+            onActiveProviderActivated(syncQuality = true)
         }
         return result
     }

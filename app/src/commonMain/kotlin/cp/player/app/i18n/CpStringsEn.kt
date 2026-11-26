@@ -55,8 +55,8 @@ object CpStringsEn : CpStrings {
             subtitle = "Follow the system, or pin to Simplified Chinese / English",
         )
         override val itemAppearance = CpTextPair(
-            title = "Appearance & Theme",
-            subtitle = "Theme mode, color source, and pure black background",
+            title = "Interface Settings",
+            subtitle = "Theme, language, motion, and navigation",
         )
         override val itemPlayback = CpTextPair(
             title = "Playback & Quality",
@@ -101,10 +101,6 @@ object CpStringsEn : CpStrings {
         override val itemOnboarding = CpTextPair(
             title = "Replay Onboarding",
             subtitle = "Walk through first-time setup again",
-        )
-        override val itemNavigation = CpTextPair(
-            title = "Navigation",
-            subtitle = "Dynamic instead of Search, hide Dynamic/Messages, and provider support",
         )
     }
 
@@ -167,7 +163,7 @@ object CpStringsEn : CpStrings {
     }
 
     override val appearance: AppearanceStrings = object : AppearanceStrings {
-        override val screenTitle = "Appearance & Theme"
+        override val screenTitle = "Interface Settings"
         override val sectionLook = "Look"
         override val sectionMotion = "Motion and visual effects"
         override val sectionContent = "Content and list presentation"
@@ -200,6 +196,9 @@ object CpStringsEn : CpStrings {
         override val autoHideBottomBar = "Auto-hide bottom bar"
         override val autoHideBottomBarNote =
             "Collapse the bottom navigation bar when scrolling up, bring it back when scrolling down"
+        override val predictiveBack = "Predictive back gesture"
+        override val predictiveBackNote =
+            "Preview the previous screen in real time while swiping back from the screen edge"
         override val coverFlight = "Cover flight animation"
         override val coverFlightNote =
             "Transition that flies the artwork into the player or detail page when you tap a track or " +
@@ -211,6 +210,11 @@ object CpStringsEn : CpStrings {
                 "current theme and artwork palette. Turn it off to save power."
 
         override val fluidBackgroundFps = "Fluid background frame rate"
+        override val fluidBackgroundDarkOverlay = "Dim fluid backgrounds in dark mode"
+        override val fluidBackgroundDarkOverlayNote = "Dim playback fluid backgrounds in dark mode (15% on Android 13, 20% elsewhere)"
+        override val desktopPlayerControls = "Desktop player"
+        override val desktopPlayerVolume = "Show volume slider"
+        override val desktopPlayerVolumeNote = "Show the volume slider below the desktop playback controls"
         override val fluidBackgroundFpsNote =
             "Sets the maximum animation rate. Higher rates look smoother but use more power."
 
@@ -1028,10 +1032,6 @@ object CpStringsEn : CpStrings {
         override val immersiveLyricsOn = "Immersive lyrics (on)"
         override val immersiveLyricsOff = "Immersive lyrics (off)"
         override val playerSettings = "Player screen settings"
-        override val viewFullMetadata = "View full metadata →"
-        override val wordByWordLyrics = "Word-by-word lyrics"
-        override val dynamicLyrics = "Synced lyrics"
-        override val lyricOffsetChip = "Fine-tune"
         override fun lyricOffsetChipValue(label: String, seconds: String) = "$label ($seconds)"
 
         override val similarSongs = "Similar songs"
@@ -1406,15 +1406,20 @@ object CpStringsEn : CpStrings {
 
     override val update: AppUpdateStrings = object : AppUpdateStrings {
         override val title = "New Version Available"
-        override val changelogTitle = "What's New & Release Notes"
+        override fun titleWithVersion(version: String) = "New version v$version available"
+        override val changelogTitle = "Release notes"
         override val defaultChangelog = "This release includes routine experience optimizations, performance improvements, and bug fixes.\nKeeping updated is recommended for the best experience."
         override val viewDiffOnGithub = "View complete code diff on GitHub"
-        override val downloadNow = "Download update now"
-        override val releasePage = "Releases"
-        override val later = "Later"
-        override fun publishedAt(date: String) = "Published $date"
+        override val downloadNow = "Update now"
+        override val releasePage = "View details"
+        override val later = "Remind me later"
+        override val disableAutoUpdate = "Turn off auto updates"
+        override val installPackage = "Select install type:"
+        override fun publishedAt(date: String) = "Published: $date"
         override val packageAndroid = "Android package (.apk)"
         override val packageWindows = "Windows installer (.exe)"
+        override val packageWindowsPortable = "Windows portable (ZIP)"
+        override val packageMacos = "macOS DMG image"
         override val packageLinuxDeb = "Linux Debian/Ubuntu (.deb)"
         override val packageLinuxTar = "Linux universal package (.tar.gz)"
         override val packageLinux = "Linux package"
@@ -1481,6 +1486,10 @@ object CpStringsEn : CpStrings {
         override val fmExplore = "Explore"
         override val fmFamiliar = "Familiar"
         override val fmPuzzle = "Puzzle"
+        override val fmGuideTitle = "Updates as you listen"
+        override val fmGuideBody = "Tap any track to start continuous Personal FM playback. New tracks are fetched and appended to this list automatically as you listen, or switch channels above anytime."
+        override fun fmLiveStatus(count: Int) = if (count == 1) "Live · 1 track" else "Live · $count tracks"
+        override fun fmReadyStatus(count: Int) = if (count == 1) "1 track" else "$count tracks"
         override val localLibrary = "Local library"
         override val localLibraryNote = "Browse music files on this device"
         override val intelligenceNote = "Built around today's picks"
@@ -1569,6 +1578,18 @@ object CpStringsEn : CpStrings {
             "Only applies in exclusive mode; shared mode resamples to the device's default rate through the system mixer"
         override val dspTitle = "64-bit floating-point DSP pipeline"
         override val dspNote = "5-band parametric EQ, channel balance and stereo width run inside the engine, not the system effect chain"
+
+        override val sectionToggles = "Hardware output & decoding"
+        override val androidUsbExclusiveTitle = "USB DAC exclusive mode (UAC 2.0)"
+        override val androidUsbExclusiveNote = "Uses shared AAudio by default. When on, claims USB DAC only during active playback and releases immediately on pause, stop, or exit."
+        override val androidUsbAutoResumeTitle = "Auto-resume if USB reconnects within 3s"
+        override val androidUsbAutoResumeNote = "Automatically resumes playback if an external USB DAC or headset reconnects within 3 seconds. Works with both Media3 and FlickEngine."
+        override val dsdModeTitle = "DSD output mode"
+        override val dsdModePcm = "PCM decimation"
+        override val dsdModeDop = "DoP"
+        override val dsdModeNative = "Native DSD"
+        override val dsdModeAuto = "Auto"
+        override val togglesNote = "DSD output mode applies only to DSD tracks (PCM decimation works everywhere; DoP / Native require a compatible DAC)."
 
         override val badgeActive = "Active"
         override val badgeNeedsFlick = "Needs FlickEngine"

@@ -83,17 +83,26 @@ class DesktopHiResPlatformPlayer(
 
     // ============ 引擎级通用能力 ============
 
+    private data class LoadRequest(
+        val url: String,
+        val startPositionMs: Long,
+        val headers: Map<String, String>,
+        val metadata: PlaybackMetadata?,
+    )
+
     override val supportsPlaybackSpeed: Boolean get() = DesktopHiResEngine.supportsExtendedFeatures
     override val playbackSpeed: Float get() = DesktopHiResEngine.getPlaybackSpeed()
 
     override fun setPlaybackSpeed(speed: Float) {
+        lastPlaybackSpeed = speed
         if (!DesktopHiResEngine.supportsExtendedFeatures) return
         scope.launch(DesktopHiResEngine.engineDispatcher) {
             DesktopHiResEngine.setPlaybackSpeed(speed)
         }
     }
 
-    override val supportsGaplessQueue: Boolean get() = DesktopHiResEngine.supportsExtendedFeatures
+    override val supportsGaplessQueue: Boolean
+        get() = DesktopHiResEngine.supportsExtendedFeatures
 
     override fun queueNext(source: String, headers: Map<String, String>) {
         if (!DesktopHiResEngine.supportsExtendedFeatures) return
@@ -112,19 +121,27 @@ class DesktopHiResPlatformPlayer(
         queueNext(source, headers)
     }
 
-    override val supportsNativeCrossfade: Boolean get() = DesktopHiResEngine.supportsExtendedFeatures
+    override val supportsNativeCrossfade: Boolean
+        get() = DesktopHiResEngine.supportsExtendedFeatures
+
+    @Volatile private var lastCrossfadeConfig: Pair<Boolean, Long>? = null
+    @Volatile private var lastPlaybackSpeed: Float? = null
+    @Volatile private var lastAudioEffectConfig: AudioEffectConfig? = null
+    @Volatile private var lastLoadRequest: LoadRequest? = null
 
     override fun setNativeCrossfade(enabled: Boolean, durationMs: Long) {
         if (!DesktopHiResEngine.supportsExtendedFeatures) return
+        val clampedDurationMs = durationMs.coerceAtLeast(0L)
+        lastCrossfadeConfig = enabled to clampedDurationMs
         scope.launch(DesktopHiResEngine.engineDispatcher) {
-            DesktopHiResEngine.setCrossfade(enabled, durationMs.coerceAtLeast(0L) / 1000f)
+            DesktopHiResEngine.setCrossfade(enabled, clampedDurationMs / 1000f)
         }
     }
 
     override val supportsSeekableRemoteStreams: Boolean
         get() = DesktopHiResEngine.supportsExtendedFeatures
 
-    private var currentVolume = 1.0f
+    @Volatile private var currentVolume = 1.0f
     private var lastReportedEnginePositionMs = 0L
 
     // ============ 音效下发的去抖与 diff ============
@@ -285,11 +302,21 @@ class DesktopHiResPlatformPlayer(
     ) {
         queuedMediaIds.clear()
         currentMediaId = metadata?.id
+        lastLoadRequest = LoadRequest(url, startPositionMs, headers, metadata)
         seekTracker.cancel()
         _durationMs.value = metadata?.durationMs ?: 0L
         _positionMs.value = startPositionMs
         _state.value = PlatformPlaybackState.Buffering
 
+        loadResolved(url, startPositionMs, headers, metadata)
+    }
+
+    private suspend fun loadResolved(
+        url: String,
+        startPositionMs: Long,
+        headers: Map<String, String>,
+        metadata: PlaybackMetadata?,
+    ) {
         when (val resolved = resolvePlayablePath(url, headers, metadata)) {
             is ResolvedSource.Local -> startLocalPlayback(resolved.path, startPositionMs)
 
@@ -300,6 +327,9 @@ class DesktopHiResPlatformPlayer(
                 }
                 if (streamOk) {
                     logger.info("Streaming directly (Range-seekable): ${resolved.url}")
+                    withContext(DesktopHiResEngine.engineDispatcher) {
+                        replayEngineStateLocked()
+                    }
                     if (startPositionMs > 0L) {
                         // 引擎的 play_url 不接受起始位置；交给 PendingSeekTracker 在
                         // 源就绪后补发一次 seek。源头是 [SeekOrigin.START_POSITION]，
@@ -333,14 +363,37 @@ class DesktopHiResPlatformPlayer(
         }
     }
 
+    private fun replayEngineStateLocked() {
+        DesktopHiResEngine.setVolume(currentVolume)
+        lastPlaybackSpeed?.let { speed ->
+            if (DesktopHiResEngine.supportsExtendedFeatures) {
+                DesktopHiResEngine.setPlaybackSpeed(speed)
+            }
+        }
+        val cf = lastCrossfadeConfig
+        if (cf != null && DesktopHiResEngine.supportsExtendedFeatures) {
+            DesktopHiResEngine.setCrossfade(cf.first, cf.second / 1000f)
+        }
+        val cfg = lastAudioEffectConfig
+        if (cfg != null) {
+            lastPeqSignature = null
+            lastFxSignature = null
+            lastDynamicsSignature = null
+            dispatchAudioEffectLocked(cfg)
+        }
+    }
+
     private suspend fun startLocalPlayback(path: String, startPositionMs: Long) {
         println("[CPPlayer Hi-Res Player] Playing physical path: $path")
         withContext(DesktopHiResEngine.engineDispatcher) {
             val ok = DesktopHiResEngine.play(path)
             if (!ok) {
                 _state.value = PlatformPlaybackState.Error("Failed to open audio track in Desktop Hi-Res engine: $path")
-            } else if (startPositionMs > 0L) {
-                seekTracker.request(startPositionMs, engineReady = false, origin = SeekOrigin.START_POSITION)
+            } else {
+                replayEngineStateLocked()
+                if (startPositionMs > 0L) {
+                    seekTracker.request(startPositionMs, engineReady = false, origin = SeekOrigin.START_POSITION)
+                }
             }
         }
     }
@@ -399,8 +452,24 @@ class DesktopHiResPlatformPlayer(
     }
 
     override fun play() {
-        scope.launch(DesktopHiResEngine.engineDispatcher) {
-            DesktopHiResEngine.resume()
+        val currentState = _state.value
+        val req = lastLoadRequest
+        if ((currentState == PlatformPlaybackState.Ended || currentState == PlatformPlaybackState.Idle) && req != null) {
+            scope.launch {
+                _state.value = PlatformPlaybackState.Buffering
+                loadResolved(req.url, 0L, req.headers, req.metadata)
+            }
+            return
+        }
+        scope.launch {
+            val resumed = withContext(DesktopHiResEngine.engineDispatcher) {
+                DesktopHiResEngine.resume()
+            }
+            if (!resumed && req != null) {
+                val resumePos = maxOf(_positionMs.value, lastReportedEnginePositionMs).coerceAtLeast(0L)
+                _state.value = PlatformPlaybackState.Buffering
+                loadResolved(req.url, resumePos, req.headers, req.metadata)
+            }
         }
     }
 
@@ -441,10 +510,12 @@ class DesktopHiResPlatformPlayer(
         effectJob?.cancel()
         effectJob = null
         seekTracker.cancel()
-        try {
-            DesktopHiResEngine.stop()
-            DesktopHiResEngine.shutdownEngine()
-        } catch (_: Throwable) {
+        // 在专属 JNI 线程上串行执行 stop + shutdownEngine，避免与队列里在途的 play/seek 竞争句柄。
+        runCatching {
+            kotlinx.coroutines.runBlocking(DesktopHiResEngine.engineDispatcher) {
+                DesktopHiResEngine.stop()
+                DesktopHiResEngine.shutdownEngine()
+            }
         }
         _state.value = PlatformPlaybackState.Idle
     }
@@ -468,6 +539,7 @@ class DesktopHiResPlatformPlayer(
      * - 排队期间若又来了新配置，**取消旧任务、按最新那份重排**（尾包一定是最新值）。
      */
     override fun applyAudioEffect(config: AudioEffectConfig) {
+        lastAudioEffectConfig = config
         if (!DesktopHiResEngine.isAvailable) return
 
         val peq = FlickPeqMapper.peqPlan(config.equalizer)
@@ -489,83 +561,101 @@ class DesktopHiResPlatformPlayer(
             if (waitMs > 0L) delay(waitMs)
 
             withContext(DesktopHiResEngine.engineDispatcher) {
-                if (peqSignature != lastPeqSignature) {
-                    // ⚠️ 只有**引擎真的接受了**才记指纹：引擎尚未 init（或 JNI 失败）时
-                    // setEqualizer 返回 false，此时若把指纹记下，这份配置就再也不会被重发，
-                    // 表现为「设置页调了没反应」。
-                    val applied = if (peq.active) {
-                        DesktopHiResEngine.setEqualizer(
-                            enabled = true,
-                            freqs = peq.freqsHz,
-                            gains = peq.gainsDb,
-                            qs = peq.qs,
-                        )
-                    } else {
-                        // 已经是 off 就不必再发一次关：引擎的关操作会清零滤波器状态，
-                        // 空发一次等于把「刚刚静音下重放」的状态又清一遍，没有意义。
-                        lastPeqSignature == null || DesktopHiResEngine.setEqualizer(
-                            enabled = false,
-                            freqs = FloatArray(0),
-                            gains = FloatArray(0),
-                            qs = FloatArray(0),
-                        )
-                    }
-                    if (applied) lastPeqSignature = peqSignature
-                }
-
-                if (fxSignature != lastFxSignature) {
-                    // 与 PEQ 同理：出厂态本来就是「FX 关闭」，第一次拿到关闭态不必惊动引擎
-                    // （引擎的 set(enabled=false) 会 reset 延迟线状态，纯属多余）。
-                    val applied = if (fx.enabled || lastFxSignature != null) {
-                        DesktopHiResEngine.setFx(
-                            enabled = fx.enabled,
-                            balance = fx.balance,
-                            width = fx.width,
-                            // ⚠️ 这三个必须显式写 0：引擎的 enabled 开关**同时**带着一条 240 ms 混响，
-                            // 不清零的话「调左右平衡」会听到混响尾巴（见 FlickPeqMapper.CLEAN_FX_*）。
-                            mix = FlickPeqMapper.CLEAN_FX_MIX,
-                            feedback = FlickPeqMapper.CLEAN_FX_FEEDBACK,
-                            damp = FlickPeqMapper.CLEAN_FX_DAMP,
-                        )
-                    } else {
-                        true
-                    }
-                    if (applied) lastFxSignature = fxSignature
-                }
-
-                if (dynamicsSupported && dynamicsSignature != lastDynamicsSignature) {
-                    // 首次拿到全 OFF 时不必惊动引擎（出厂态本来就是直通），
-                    // 与 PEQ / FX 同一个「不要为了关闭而挂一条链」的取舍。
-                    val shouldDispatch = dynamics.compressorEnabled ||
-                        dynamics.limiterEnabled ||
-                        lastDynamicsSignature != null
-                    val applied = if (!shouldDispatch) {
-                        true
-                    } else {
-                        val compressorOk = DesktopHiResEngine.setCompressor(
-                            enabled = dynamics.compressorEnabled,
-                            thresholdDb = dynamics.thresholdDb,
-                            ratio = dynamics.ratio,
-                            attackMs = dynamics.attackMs,
-                            releaseMs = dynamics.releaseMs,
-                            makeupGainDb = dynamics.makeupGainDb,
-                        )
-                        val limiterOk = DesktopHiResEngine.setLimiter(
-                            enabled = dynamics.limiterEnabled,
-                            inputGainDb = dynamics.inputGainDb,
-                            ceilingDb = dynamics.ceilingDb,
-                            releaseMs = dynamics.limiterReleaseMs,
-                        )
-                        compressorOk && limiterOk
-                    }
-                    if (applied) lastDynamicsSignature = dynamicsSignature
-                } else if (!dynamicsSupported) {
-                    // 老 DLL：能力位已如实关掉，这里只要别让指纹卡住 diff。
-                    lastDynamicsSignature = dynamicsSignature
-                }
-
-                lastEffectDispatchAtMs = System.nanoTime() / 1_000_000L
+                dispatchAudioEffectLocked(config)
             }
         }
+    }
+
+    private fun dispatchAudioEffectLocked(config: AudioEffectConfig) {
+        val peq = FlickPeqMapper.peqPlan(config.equalizer)
+        val fx = FlickPeqMapper.fxPlan(config.mixer)
+        val dynamics = FlickPeqMapper.dynamicsPlan(config.leveling, config.enabled)
+        val dynamicsSupported = DesktopHiResEngine.supportsExtendedFeatures
+        val peqSignature = peq.signature()
+        val fxSignature = fx.signature()
+        val dynamicsSignature = if (dynamicsSupported) dynamics.signature() else "unsupported"
+
+        if (peqSignature != lastPeqSignature) {
+            // ⚠️ 只有**引擎真的接受了**才记指纹：引擎尚未 init（或 AudioEngineHandle 未建）时
+            // setEqualizer 返回 false，此时不锁死指纹并在 load() 时由 replayEngineStateLocked 补发。
+            val applied = if (peq.active) {
+                DesktopHiResEngine.setEqualizer(
+                    enabled = true,
+                    freqs = peq.freqsHz,
+                    gains = peq.gainsDb,
+                    qs = peq.qs,
+                )
+            } else {
+                lastPeqSignature == null || DesktopHiResEngine.setEqualizer(
+                    enabled = false,
+                    freqs = FloatArray(0),
+                    gains = FloatArray(0),
+                    qs = FloatArray(0),
+                )
+            }
+            if (applied) lastPeqSignature = peqSignature
+        }
+
+        if (fxSignature != lastFxSignature) {
+            val applied = if (fx.enabled || lastFxSignature != null) {
+                DesktopHiResEngine.setFx(
+                    enabled = fx.enabled,
+                    balance = fx.balance,
+                    width = fx.width,
+                    mix = FlickPeqMapper.CLEAN_FX_MIX,
+                    feedback = FlickPeqMapper.CLEAN_FX_FEEDBACK,
+                    damp = FlickPeqMapper.CLEAN_FX_DAMP,
+                )
+            } else {
+                true
+            }
+            if (applied) lastFxSignature = fxSignature
+        }
+
+        if (dynamicsSupported && dynamicsSignature != lastDynamicsSignature) {
+            val shouldDispatch = dynamics.compressorEnabled ||
+                dynamics.limiterEnabled ||
+                lastDynamicsSignature != null
+            val applied = if (!shouldDispatch) {
+                true
+            } else {
+                val compressorOk = DesktopHiResEngine.setCompressor(
+                    enabled = dynamics.compressorEnabled,
+                    thresholdDb = dynamics.thresholdDb,
+                    ratio = dynamics.ratio,
+                    attackMs = dynamics.attackMs,
+                    releaseMs = dynamics.releaseMs,
+                    makeupGainDb = dynamics.makeupGainDb,
+                )
+                val limiterOk = DesktopHiResEngine.setLimiter(
+                    enabled = dynamics.limiterEnabled,
+                    inputGainDb = dynamics.inputGainDb,
+                    ceilingDb = dynamics.ceilingDb,
+                    releaseMs = dynamics.limiterReleaseMs,
+                )
+                compressorOk && limiterOk
+            }
+            if (applied) lastDynamicsSignature = dynamicsSignature
+        } else if (!dynamicsSupported) {
+            if (lastDynamicsSignature != null && lastDynamicsSignature != "unsupported") {
+                DesktopHiResEngine.setCompressor(
+                    enabled = false,
+                    thresholdDb = 0f,
+                    ratio = 1f,
+                    attackMs = 0f,
+                    releaseMs = 0f,
+                    makeupGainDb = 0f,
+                )
+                DesktopHiResEngine.setLimiter(
+                    enabled = false,
+                    inputGainDb = 0f,
+                    ceilingDb = 0f,
+                    releaseMs = 0f,
+                )
+            }
+            lastDynamicsSignature = dynamicsSignature
+        }
+
+        lastEffectDispatchAtMs = System.nanoTime() / 1_000_000L
     }
 }

@@ -62,6 +62,7 @@ import cp.player.app.ui.theme.LocalIsDarkTheme
 import cp.player.app.ui.theme.containsKana
 import cp.player.app.ui.util.DesktopShell
 import cp.player.app.ui.util.LyricOffsetManager
+import cp.player.app.ui.util.rememberCoverImageRequest
 import cp.player.app.ui.util.resized
 import cp.player.core.playback.LyricsState
 import cp.player.core.playback.PlaybackUiState
@@ -269,27 +270,19 @@ fun DesktopMiniPlayer(
                 ) {
                     // 封面：支持 M3 Expressive 圆角 Morphing，占位块走全应用统一的渐变组件，并叠加常驻均衡器
                     val coverUrl = track?.coverUrl
-                    val hasCover = !coverUrl.isNullOrBlank()
                     Box(
                         modifier = Modifier
                             .size(52.dp)
                             .clip(coverShape),
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (hasCover) {
-                            AsyncImage(
-                                model = coverUrl.resized(240),
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        } else {
-                            CpCoverPlaceholder(
-                                modifier = Modifier.fillMaxSize(),
-                                corner = coverCorner,
-                                animated = false,
-                            )
-                        }
+                        cp.player.app.ui.component.CpArtworkImage(
+                            request = rememberCoverImageRequest(coverUrl, targetPx = 256, placeholderBucketPx = 128),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            placeholderCorner = coverCorner,
+                            modifier = Modifier.fillMaxSize(),
+                        )
                         // 常驻跳动/暂停三点均衡器
                         CpPlayingEqualizer(
                             modifier = Modifier

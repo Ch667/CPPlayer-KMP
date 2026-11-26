@@ -43,6 +43,7 @@ import cp.player.app.ui.anim.coverFlightSource
 import cp.player.app.ui.navigation.LocalAppNavigator
 import cp.player.app.ui.theme.CpMotion
 import cp.player.app.ui.theme.LocalIsDarkTheme
+import cp.player.app.ui.util.rememberCoverImageRequest
 import cp.player.app.ui.util.resized
 import cp.player.core.music.TrackSummary
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -128,11 +129,22 @@ fun SongItem(
     // - 勾中 = 主色强调块（primaryContainer），是用户正在施加的操作；
     // - 当前播放 = 选中态（secondaryContainer），与导航栏指示器、设置页选中行同义。
     // 旧版两处都用 primaryContainer，只靠 α=0.5 区分 —— 同一行上根本看不出差别。
-    val isDark = LocalIsDarkTheme.current
     val targetContainerColor = when {
         selectionMode && isSelected -> MaterialTheme.colorScheme.primaryContainer
-        isCurrent -> MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.16f else 0.10f)
+        isCurrent -> MaterialTheme.colorScheme.secondaryContainer
+        // 行是「页面上的卡片」，统一走卡片层 —— 深浅两套层级是反的，
+        // 分散写角色名会在「用户显式选深色、系统是浅色」时取错色板（见 cpCardSurface）。
         else -> cp.player.app.ui.theme.cpCardSurface()
+    }
+    val rowPrimaryTextColor = when {
+        selectionMode && isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
+        isCurrent -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    val rowSecondaryTextColor = when {
+        selectionMode && isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
+        isCurrent -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val animatedContainerColor by animateColorAsState(
         targetValue = targetContainerColor,
@@ -169,8 +181,7 @@ fun SongItem(
                             CpText(
                                 text = "${index + 1}",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = if (isCurrent) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = rowSecondaryTextColor,
                                 modifier = Modifier.padding(end = 12.dp),
                             )
                         }
@@ -180,18 +191,17 @@ fun SongItem(
                                 .coverFlightSource(CoverFlight.trackKey(track.id), coverCorner),
                             contentAlignment = Alignment.Center,
                         ) {
+                            CpCoverPlaceholder(
+                                modifier = Modifier.fillMaxSize(),
+                                corner = coverCorner,
+                                animated = false,
+                            )
                             if (!track.coverUrl.isNullOrBlank()) {
                                 AsyncImage(
-                                    model = track.coverUrl.resized(180),
+                                    model = rememberCoverImageRequest(track.coverUrl, targetSizeDp = 52.dp),
                                     contentDescription = null,
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop,
-                                )
-                            } else {
-                                CpCoverPlaceholder(
-                                    modifier = Modifier.fillMaxSize(),
-                                    corner = coverCorner,
-                                    animated = false,
                                 )
                             }
                             // 当前曲目：封面上浮均衡器。播放中跳动，暂停时塌成三个点；
@@ -219,8 +229,7 @@ fun SongItem(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
                         maxLines = 1,
-                        color = if (isCurrent) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurface,
+                        color = rowPrimaryTextColor,
                         emphasized = isCurrent,
                         modifier = Modifier.weight(1f, fill = false),
                     )
@@ -230,8 +239,8 @@ fun SongItem(
                         Spacer(Modifier.width(6.dp))
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                             modifier = Modifier.clickable {
                                 nav.push(AppRoute.VideoPlayer("netease://mv/$mvId", title = "${track.name} - MV"))
                             },
@@ -262,7 +271,7 @@ fun SongItem(
                             }
                         },
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = rowSecondaryTextColor,
                         maxLines = 1,
                         emphasized = isCurrent,
                         modifier = Modifier.weight(1f, fill = false),

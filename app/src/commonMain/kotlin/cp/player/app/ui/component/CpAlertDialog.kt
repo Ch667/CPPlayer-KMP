@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import cp.player.app.ui.theme.cpSheetSurface
 
@@ -33,7 +34,7 @@ fun CpAlertDialog(
     iconContentColor: Color = AlertDialogDefaults.iconContentColor,
     titleContentColor: Color = AlertDialogDefaults.titleContentColor,
     textContentColor: Color = AlertDialogDefaults.textContentColor,
-    tonalElevation: Dp = AlertDialogDefaults.TonalElevation,
+    tonalElevation: Dp = 0.dp,
     properties: DialogProperties = DialogProperties(),
 ) {
     AlertDialog(

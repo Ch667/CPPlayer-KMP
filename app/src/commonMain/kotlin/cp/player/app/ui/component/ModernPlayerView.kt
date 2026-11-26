@@ -31,9 +31,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import cp.player.app.AppModel
+import cp.player.app.platform.isAndroidPlatform
 import cp.player.app.platform.BackHandler
 import cp.player.app.presentation.navigation.AppRoute
 import cp.player.app.ui.feedback.CpHaptic
@@ -41,6 +44,7 @@ import cp.player.app.ui.feedback.LocalCpHaptics
 import cp.player.app.ui.model.CommentScreenModel
 import cp.player.app.ui.navigation.LocalAppNavigator
 import cp.player.app.ui.theme.CpMotion
+import cp.player.app.ui.theme.cpNestedSurface
 import cp.player.core.music.ArtistSummary
 import cp.player.core.playback.PlaybackUiState
 import cp.player.core.provider.ProviderCapability
@@ -83,7 +87,7 @@ fun SharedTransitionScope.ModernPlayerScreenContent(
 
     val anySheetOpen = showQueue || showComments || more.showMoreMenu || more.showSimilarSongs ||
         more.showAddToPlaylist || more.showSleepTimer || more.showSongInfo || more.showDevicePicker || more.showLyricOffset
-    val isImmersive = lyricsExpanded && config.lyricsImmersiveEnabled && isImmersiveActive && !anySheetOpen
+    val isImmersive = isAndroidPlatform() && lyricsExpanded && config.lyricsImmersiveEnabled && isImmersiveActive && !anySheetOpen
 
     BackHandler(enabled = isImmersive) {
         isImmersiveActive = false
@@ -93,29 +97,35 @@ fun SharedTransitionScope.ModernPlayerScreenContent(
         lyricsExpanded = false
     }
 
+    val dismissHandler = LocalPlayerDismissHandler.current
+    val allowSharedBounds = LocalPlayerAllowSharedBounds.current
     val currentBack by rememberUpdatedState(onBack)
     val dragOffset = remember { Animatable(0f) }
     val dragThreshold = with(LocalDensity.current) { 100.dp.toPx() }
     val resetMotion = CpMotion.spatial<Float>()
-    val dismissGesture = Modifier.pointerInput(dragThreshold) {
-        detectVerticalDragGestures(
-            onVerticalDrag = { change, amount ->
-                if (amount > 0 || dragOffset.value > 0) {
-                    change.consume()
-                    scope.launch {
-                        dragOffset.snapTo((dragOffset.value + amount).coerceIn(0f, dragThreshold * 2))
+    val dismissGesture = if (dismissHandler != null) {
+        Modifier.playerDismissDragGesture(dismissHandler)
+    } else {
+        Modifier.pointerInput(dragThreshold) {
+            detectVerticalDragGestures(
+                onVerticalDrag = { change, amount ->
+                    if (amount > 0 || dragOffset.value > 0) {
+                        change.consume()
+                        scope.launch {
+                            dragOffset.snapTo((dragOffset.value + amount).coerceIn(0f, dragThreshold * 2))
+                        }
                     }
-                }
-            },
-            onDragEnd = {
-                if (dragOffset.value >= dragThreshold) {
-                    haptics.perform(CpHaptic.Confirm)
-                    currentBack()
-                }
-                scope.launch { dragOffset.animateTo(0f, resetMotion) }
-            },
-            onDragCancel = { scope.launch { dragOffset.animateTo(0f, resetMotion) } },
-        )
+                },
+                onDragEnd = {
+                    if (dragOffset.value >= dragThreshold) {
+                        haptics.perform(CpHaptic.Confirm)
+                        currentBack()
+                    }
+                    scope.launch { dragOffset.animateTo(0f, resetMotion) }
+                },
+                onDragCancel = { scope.launch { dragOffset.animateTo(0f, resetMotion) } },
+            )
+        }
     }
     val onArtist: ((ArtistSummary) -> Unit)? = remember(navigator) {
         { artist -> navigator.push(AppRoute.UserProfile(artist.id, artist.name, artist.resourceId)) }
@@ -125,17 +135,38 @@ fun SharedTransitionScope.ModernPlayerScreenContent(
     }
 
     val currentTrack = state.currentTrack
-    val titleModifier = if (currentTrack != null) {
+    val containerSharedModifier = if (allowSharedBounds && LocalPlayerShareContainer.current) {
         Modifier.sharedBounds(
-            sharedContentState = rememberSharedContentState("title-${currentTrack.id}"),
+            sharedContentState = rememberSharedContentState("player-container"),
             animatedVisibilityScope = animatedVisibilityScope,
+            zIndexInOverlay = 0f,
         )
     } else Modifier
 
-    val artistModifier = if (currentTrack != null) {
+    val artworkSharedModifier = if (allowSharedBounds && currentTrack != null) {
+        Modifier.sharedBounds(
+            sharedContentState = rememberSharedContentState("cover-${currentTrack.id}"),
+            animatedVisibilityScope = animatedVisibilityScope,
+            zIndexInOverlay = 1f,
+            clipInOverlayDuringTransition = OverlayClip(MaterialTheme.shapes.medium),
+        )
+    } else Modifier
+
+    val titleModifier = if (allowSharedBounds && currentTrack != null) {
+        Modifier.sharedBounds(
+            sharedContentState = rememberSharedContentState("title-${currentTrack.id}"),
+            animatedVisibilityScope = animatedVisibilityScope,
+            resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(ContentScale.Fit, Alignment.CenterStart),
+            zIndexInOverlay = 1f,
+        )
+    } else Modifier
+
+    val artistModifier = if (allowSharedBounds && currentTrack != null) {
         Modifier.sharedBounds(
             sharedContentState = rememberSharedContentState("artist-${currentTrack.id}"),
             animatedVisibilityScope = animatedVisibilityScope,
+            resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(ContentScale.Fit, Alignment.CenterStart),
+            zIndexInOverlay = 1f,
         )
     } else Modifier
 
@@ -152,6 +183,12 @@ fun SharedTransitionScope.ModernPlayerScreenContent(
 
     Box(
         Modifier.fillMaxSize()
+            .then(
+                if (dismissHandler == null && dragOffset.value > 0f) {
+                    Modifier.graphicsLayer { translationY = dragOffset.value }
+                } else Modifier
+            )
+            .then(containerSharedModifier)
             .cpFluidBackground(
                 enabled = fluidBackground,
                 fallback = backgroundBrush,
@@ -159,9 +196,7 @@ fun SharedTransitionScope.ModernPlayerScreenContent(
                     animatedVisibilityScope.transition.isRunning,
                 ),
                 coverUrl = state.currentTrack?.coverUrl,
-            )
-            .sharedBounds(rememberSharedContentState("player-container"), animatedVisibilityScope)
-            .graphicsLayer { translationY = dragOffset.value },
+            ),
     ) {
         MobileNowPlayingLayout(
             state = state,
@@ -195,9 +230,7 @@ fun SharedTransitionScope.ModernPlayerScreenContent(
             modifier = Modifier.fillMaxSize(),
             contentModifier = Modifier.windowInsetsPadding(WindowInsets.systemBars),
             dismissGesture = dismissGesture,
-            artworkModifier = Modifier.sharedBounds(
-                rememberSharedContentState("cover-${state.currentTrack?.id}"), animatedVisibilityScope,
-            ),
+            artworkModifier = artworkSharedModifier,
             titleModifier = titleModifier,
             artistModifier = artistModifier,
             isImmersive = isImmersive,
@@ -208,6 +241,7 @@ fun SharedTransitionScope.ModernPlayerScreenContent(
             onImmersiveChange = { active ->
                 isImmersiveActive = active
             },
+            isTransitionRunning = animatedVisibilityScope.transition.isRunning,
         ) { modifier ->
             LyricContent(
                 state = state,
@@ -236,10 +270,6 @@ fun SharedTransitionScope.ModernPlayerScreenContent(
             onMove = onMoveQueue,
             onClear = onClearQueue,
             onClose = { showQueue = false },
-            onOpenSimilar = {
-                showQueue = false
-                more.showSimilarSongs = true
-            },
             shuffleEnabled = state.shuffleEnabled,
             repeatMode = state.repeatMode,
             onShuffle = onShuffle,
@@ -257,7 +287,11 @@ fun ModernCommentBottomSheet(trackId: String, onClose: () -> Unit) {
             Modifier.fillMaxWidth().fillMaxHeight(0.84f)
                 .padding(horizontal = CpSpacing.pageHorizontal),
         ) {
-            CommentPane(model = model, modifier = Modifier.fillMaxSize())
+            CommentPane(
+                model = model,
+                modifier = Modifier.fillMaxSize(),
+                sortChipContainerColor = cpNestedSurface(),
+            )
         }
     }
 }

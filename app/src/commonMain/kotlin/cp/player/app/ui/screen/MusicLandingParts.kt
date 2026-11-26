@@ -1,7 +1,6 @@
 package cp.player.app.ui.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Favorite
@@ -59,7 +57,7 @@ import cp.player.app.ui.component.cpPressScale
 import cp.player.app.ui.component.rememberActiveProviderSupports
 import cp.player.app.ui.theme.cpCardSurface
 import cp.player.app.ui.util.formatTimeMs
-import cp.player.app.ui.util.resized
+import cp.player.app.ui.util.rememberCoverImageRequest
 import cp.player.core.music.TrackSummary
 import cp.player.core.provider.ProviderCapability
 
@@ -72,7 +70,12 @@ internal fun LandingArtwork(url: String?, modifier: Modifier = Modifier) {
             Modifier.fillMaxSize(0.3f), tint = MaterialTheme.colorScheme.onSecondaryContainer,
         )
         if (!url.isNullOrBlank()) {
-            AsyncImage(url.resized(500), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            AsyncImage(
+                model = rememberCoverImageRequest(url, targetPx = 512),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
         }
     }
 }
@@ -84,12 +87,17 @@ internal fun DailySelectionFocus(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
 ) {
-    Surface(modifier, shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer) {
-        BoxWithConstraints(Modifier.fillMaxSize().padding(CpSpacing.pageHorizontal)) {
+    Surface(
+        onClick = actions.onOpenDaily,
+        modifier = modifier,
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.primaryContainer,
+    ) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = CpSpacing.pageHorizontal, vertical = 16.dp)) {
             val small = maxWidth < 440.dp
             val extraCompact = maxWidth < 280.dp
             val artworkSize = if (compact || small) CpSpacing.musicArtworkCompact else CpSpacing.musicArtwork
-            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) {
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(CpSpacing.musicGap),
@@ -104,11 +112,11 @@ internal fun DailySelectionFocus(
                         CpText(
                             "每日推荐",
                             style = when {
-                                extraCompact -> MaterialTheme.typography.headlineSmall
-                                small -> MaterialTheme.typography.headlineMedium
-                                else -> MaterialTheme.typography.displaySmall
+                                extraCompact -> MaterialTheme.typography.titleLarge
+                                small -> MaterialTheme.typography.headlineSmall
+                                else -> MaterialTheme.typography.headlineMedium
                             },
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             maxLines = 2,
                         )
@@ -131,7 +139,7 @@ internal fun DailySelectionFocus(
                         CpText("播放推荐", fontWeight = FontWeight.SemiBold)
                     },
                     onTrailingClick = actions.onOpenDaily,
-                    trailingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, "查看每日推荐") },
+                    trailingContent = { Icon(Icons.Filled.ChevronRight, "查看每日推荐") },
                     modifier = Modifier.width(if (compact) 224.dp else 256.dp).height(CpSpacing.touchTarget),
                     colors = ButtonDefaults.buttonColors(),
                 )
@@ -147,10 +155,15 @@ internal fun LandingNowPlaying(
     modifier: Modifier = Modifier,
 ) {
     val track = snapshot.track ?: return
-    Surface(modifier, shape = MaterialTheme.shapes.extraLarge, color = cpCardSurface()) {
+    Surface(
+        onClick = actions.onOpenPlayer,
+        modifier = modifier,
+        shape = MaterialTheme.shapes.extraLarge,
+        color = cpCardSurface(),
+    ) {
         Column(
-            Modifier.fillMaxSize().padding(CpSpacing.pageHorizontal),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier.fillMaxSize().padding(horizontal = CpSpacing.pageHorizontal, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Equalizer, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
@@ -158,11 +171,7 @@ internal fun LandingNowPlaying(
                 CpText(
                     if (snapshot.isPlaying) "正在播放" else "继续收听",
                     style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = actions.onOpenPlayer, modifier = Modifier.size(CpSpacing.touchTarget)) {
-                    Icon(Icons.Filled.ChevronRight, "打开播放器")
-                }
             }
             Row(
                 Modifier.fillMaxWidth().weight(1f),
@@ -170,32 +179,42 @@ internal fun LandingNowPlaying(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CpExpressiveArtwork(
-                    Modifier.size(88.dp).clickable(onClick = actions.onOpenPlayer),
+                    Modifier.size(72.dp),
                     active = snapshot.isPlaying,
                 ) { LandingArtwork(track.coverUrl, Modifier.fillMaxSize()) }
-                Column(Modifier.weight(1f).clickable(onClick = actions.onOpenPlayer)) {
+                Column(Modifier.weight(1f)) {
                     CpText(track.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2)
                     Spacer(Modifier.height(4.dp))
                     CpText(track.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            // 暂停键与波形播放条同排居中对齐；时间行另起一行并预留按钮宽度，
+            // 避免「进度 + 时间」整体把按钮拽到播放条中心之下。
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     CpWavyProgress(
                         if (snapshot.durationMs > 0) snapshot.positionMs.toFloat() / snapshot.durationMs else 0f,
                         waveFlowing = snapshot.isPlaying,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.weight(1f),
                     )
+                    CpPlayPauseButton(
+                        snapshot.isPlaying, actions.onTogglePlayPause,
+                        size = CpSpacing.touchTarget,
+                    )
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     CpText(
                         "${formatTimeMs(snapshot.positionMs)} / ${if (snapshot.durationMs > 0) formatTimeMs(snapshot.durationMs) else "--:--"}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
                     )
+                    Spacer(Modifier.width(CpSpacing.touchTarget))
                 }
-                CpPlayPauseButton(
-                    snapshot.isPlaying, actions.onTogglePlayPause,
-                    size = 56.dp,
-                )
             }
         }
     }

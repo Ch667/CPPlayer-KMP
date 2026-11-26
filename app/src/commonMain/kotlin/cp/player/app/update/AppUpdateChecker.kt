@@ -17,6 +17,13 @@ import kotlinx.serialization.json.Json
 
 object AppUpdateChecker {
 
+    data class UpdateAsset(
+        val name: String,
+        val downloadUrl: String,
+        val sha256: String?,
+        val size: Long?,
+    )
+
     data class UpdateResult(
         val versionName: String,
         val versionCode: Int,
@@ -27,6 +34,7 @@ object AppUpdateChecker {
         val assetName: String? = null,
         val assetSha256: String? = null,
         val assetSize: Long? = null,
+        val availableAssets: List<UpdateAsset> = emptyList(),
         val announcement: RemoteAnnouncement? = null,
         val destructivePolicy: DestructiveUpdatePolicy? = null,
     )
@@ -164,12 +172,20 @@ object AppUpdateChecker {
                 versionName = targetVersion,
                 versionCode = 0,
                 downloadUrl = asset?.browserDownloadUrl,
-                changelog = buildChangelog(releases, AppVersion.versionName).ifBlank { release.body.orEmpty() },
+                changelog = buildChangelog(releases, AppVersion.versionName),
                 publishedAt = release.publishedAt,
                 releaseUrl = release.htmlUrl,
                 assetName = asset?.name,
                 assetSha256 = asset?.sha256(),
                 assetSize = asset?.size,
+                availableAssets = release.assets.map { item ->
+                    UpdateAsset(
+                        name = item.name,
+                        downloadUrl = item.browserDownloadUrl,
+                        sha256 = item.sha256(),
+                        size = item.size,
+                    )
+                },
                 announcement = announcement,
                 destructivePolicy = policy,
             )
@@ -249,19 +265,47 @@ object AppUpdateChecker {
             ordered += newest
         }
 
-        val sb = StringBuilder()
-        for (release in ordered) {
-            val body = release.body
-            if (!body.isNullOrBlank()) {
-                if (ordered.size > 1) {
-                    sb.appendLine("### ${release.tagName}")
-                    sb.appendLine()
-                }
-                sb.appendLine(body.trim())
-                sb.appendLine()
-            }
+        val entries = ordered.mapNotNull { release ->
+            val notes = release.body?.let(::extractUpdateNotes)?.takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            release.tagName to notes
         }
-        return sb.toString().trimEnd()
+        return entries.joinToString("\n\n") { (tag, notes) ->
+            if (entries.size > 1) "### $tag\n\n$notes" else notes
+        }
+    }
+
+    private val releaseHeading = Regex("""^(#{1,6})\s+(.+?)\s*#*\s*$""")
+    private val updateNotesHeading = Regex("""^(?:更新内容(?:\s*[（(]What's Changed[）)])?|What's Changed)$""", RegexOption.IGNORE_CASE)
+    private val releaseFooter = Regex(
+        """^(?:\*\*)?(?:完整变更记录|Full Changelog)(?:\*\*)?\s*[:：]""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun extractUpdateNotes(body: String): String {
+        val lines = body.lines()
+        val headings = lines.map { releaseHeading.matchEntire(it.trim()) }
+        val start = headings.indexOfFirst { heading ->
+            heading != null && updateNotesHeading.matches(heading.groupValues[2])
+        }
+        val sectionDepth = headings.getOrNull(start)?.groupValues?.get(1)?.length
+
+        // 旧版可能没有「更新内容」标题，仍保留比较链接和下载说明之前的正文。
+        return lines.indices.asSequence()
+            .drop(start + 1)
+            .takeWhile { index ->
+                val heading = headings[index]
+                val title = heading?.groupValues?.get(2)
+                !releaseFooter.containsMatchIn(lines[index].trimStart()) &&
+                    title != "下载" && !title.equals("Downloads", ignoreCase = true) &&
+                    !title.equals("New Contributors", ignoreCase = true) &&
+                    (sectionDepth == null || heading == null || heading.groupValues[1].length > sectionDepth)
+            }
+            .map { lines[it] }
+            .toList()
+            .dropLastWhile { it.isBlank() || it.trim() == "---" }
+            .joinToString("\n")
+            .trim()
     }
 
     fun compareVersions(v1: String, v2: String): Int {

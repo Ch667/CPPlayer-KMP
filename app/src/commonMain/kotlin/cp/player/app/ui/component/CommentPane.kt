@@ -38,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import cp.player.app.ui.theme.CpMotion
 import cp.player.app.ui.theme.LocalIsDarkTheme
+import cp.player.app.ui.theme.cpCardSurface
 import cp.player.app.ui.theme.cpElevatedSurface
 import cp.player.app.ui.theme.cpNestedSurface
 import androidx.compose.runtime.LaunchedEffect
@@ -62,6 +63,7 @@ import cp.player.app.ui.model.CommentFloorUi
 import cp.player.app.ui.model.CommentScreenModel
 import cp.player.app.ui.model.CommentSort
 import cp.player.app.ui.model.CommentUiState
+import cp.player.app.ui.util.rememberCoverImageRequest
 import cp.player.core.music.COMMENT_MAX_LENGTH
 import cp.player.core.music.Comment
 
@@ -85,9 +87,11 @@ import cp.player.core.music.Comment
 fun CommentPane(
     model: CommentScreenModel,
     modifier: Modifier = Modifier,
+    sortChipContainerColor: Color? = null,
 ) {
     val state by model.state.collectAsState()
     val s = cpStrings()
+    val resolvedChipColor = sortChipContainerColor ?: cpCardSurface()
 
     Column(modifier.fillMaxSize()) {
         CommentSortRow(
@@ -95,6 +99,7 @@ fun CommentPane(
             totalCount = state.totalCount,
             sortTypes = state.visibleSortTypes,
             onSelect = model::setSort,
+            chipContainerColor = resolvedChipColor,
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
@@ -131,6 +136,7 @@ private fun CommentSortRow(
     totalCount: Long,
     sortTypes: List<Int>,
     onSelect: (Int) -> Unit,
+    chipContainerColor: Color,
 ) {
     val s = cpStrings().social.comment
     Row(
@@ -147,6 +153,7 @@ private fun CommentSortRow(
                     CommentSort.LATEST -> s.sortLatest
                     else -> s.sortRecommend
                 },
+                containerColor = chipContainerColor,
             )
         }
         Spacer(Modifier.weight(1f))
@@ -298,11 +305,12 @@ private fun CommentBody(comment: Comment, model: CommentScreenModel, compact: Bo
         else { { navigator.push(AppRoute.UserProfile(comment.userId, comment.user)) } }
     }
     Row(Modifier.fillMaxWidth()) {
+        val avatarSize = if (compact) 32.dp else 40.dp
         AsyncImage(
-            model = comment.avatar,
+            model = rememberCoverImageRequest(comment.avatar, targetSizeDp = avatarSize),
             contentDescription = null,
             modifier = Modifier
-                .size(if (compact) 32.dp else 40.dp)
+                .size(avatarSize)
                 .clip(CircleShape)
                 .let { if (onUserClick != null) it.clickable(onClick = onUserClick) else it },
             contentScale = ContentScale.Crop,
@@ -437,7 +445,7 @@ private fun CommentComposer(state: CommentUiState, model: CommentScreenModel) {
         state.replyTarget?.let { target ->
             Surface(
                 shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f),
+                color = MaterialTheme.colorScheme.primaryContainer,
                 modifier = Modifier.padding(start = 6.dp, bottom = 6.dp),
             ) {
                 Row(

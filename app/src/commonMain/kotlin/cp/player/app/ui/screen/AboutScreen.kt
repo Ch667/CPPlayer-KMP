@@ -18,7 +18,7 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.AlertDialog
+import cp.player.app.ui.component.CpAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,7 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.screen.Screen
+import cp.player.app.ui.navigation.RoutePage
 import cp.player.app.i18n.cpStrings
 import cp.player.app.AppModel
 import cp.player.app.platform.downloadAndInstallUpdate
@@ -43,7 +43,6 @@ import cp.player.app.ui.component.CpText
 import cp.player.app.ui.navigation.LocalAppNavigator
 import cp.player.app.ui.component.AppUpdateDialog
 import cp.player.app.ui.component.SettingsClickItem
-import cp.player.app.ui.theme.cpSheetSurface
 import cp.player.app.ui.component.SettingsNote
 import cp.player.app.ui.component.SettingsPage
 import cp.player.app.ui.component.SettingsSection
@@ -59,7 +58,7 @@ import kotlinx.coroutines.launch
 /**
  * 关于与支持页面。
  */
-class AboutScreen : Screen {
+class AboutScreen : RoutePage {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     override fun Content() {
@@ -72,6 +71,7 @@ class AboutScreen : Screen {
         var showUpdateDialog by remember { mutableStateOf(false) }
         var showDestructiveConfirm by remember { mutableStateOf(false) }
         var legacyModules by remember { mutableStateOf<List<LegacyProviderModule>>(emptyList()) }
+        var pendingAsset by remember { mutableStateOf<AppUpdateChecker.UpdateAsset?>(null) }
         var showSponsorDialog by remember { mutableStateOf(false) }
         var sponsorDialogType by remember { mutableStateOf(SponsorPaymentType.WECHAT) }
 
@@ -192,41 +192,42 @@ class AboutScreen : Screen {
         }
 
         if (showUpdateDialog && updateResult != null) {
-            AppUpdateDialog(
-                result = updateResult!!,
-                onDismiss = { showUpdateDialog = false },
-                onDownload = {
-                    updateResult?.let { result ->
-                        if (result.destructivePolicy != null) {
-                            legacyModules = if (result.destructivePolicy.removeLegacyProviders) {
-                                AppModel.legacyProviderModulesToRemove()
-                            } else emptyList()
-                            showDestructiveConfirm = true
-                        } else {
-                            val url = result.downloadUrl
-                            if (url == null) openUrl(result.releaseUrl) else scope.launch {
-                                downloadAndInstallUpdate(
-                                    url = url,
-                                    fileName = result.assetName ?: "CPPlayer-${result.versionName}",
-                                    expectedSha256 = result.assetSha256,
-                                    expectedSize = result.assetSize,
-                                    beforeInstall = { true },
-                                )
-                            }
-                        }
+            val result = updateResult!!
+            fun requestDownload(asset: AppUpdateChecker.UpdateAsset?) {
+                if (result.destructivePolicy != null) {
+                    pendingAsset = asset
+                    legacyModules = if (result.destructivePolicy.removeLegacyProviders) {
+                        AppModel.legacyProviderModulesToRemove()
+                    } else emptyList()
+                    showDestructiveConfirm = true
+                } else {
+                    val url = asset?.downloadUrl ?: result.downloadUrl
+                    if (url == null) openUrl(result.releaseUrl) else scope.launch {
+                        downloadAndInstallUpdate(
+                            url = url,
+                            fileName = asset?.name ?: result.assetName ?: "CPPlayer-${result.versionName}",
+                            expectedSha256 = asset?.sha256 ?: result.assetSha256,
+                            expectedSize = asset?.size ?: result.assetSize,
+                            beforeInstall = { true },
+                        )
                     }
-                    showUpdateDialog = false
-                },
+                }
+                showUpdateDialog = false
+            }
+
+            AppUpdateDialog(
+                result = result,
+                onDismiss = { showUpdateDialog = false },
+                onDownload = { requestDownload(null) },
+                onDownloadAsset = { requestDownload(it) },
             )
         }
 
         if (showDestructiveConfirm && updateResult?.destructivePolicy != null) {
             val result = updateResult!!
             val policy = result.destructivePolicy!!
-            AlertDialog(
+            CpAlertDialog(
                 onDismissRequest = { showDestructiveConfirm = false },
-                containerColor = cpSheetSurface(),
-                shape = MaterialTheme.shapes.extraLarge,
                 title = { CpText(policy.title) },
                 text = {
                     Column {
@@ -255,13 +256,13 @@ class AboutScreen : Screen {
                     Button(onClick = {
                         showDestructiveConfirm = false
                         val ids = legacyModules.map { it.id }.toSet()
-                        val url = result.downloadUrl
+                        val url = pendingAsset?.downloadUrl ?: result.downloadUrl
                         if (url == null) openUrl(result.releaseUrl) else scope.launch {
                             downloadAndInstallUpdate(
                                 url = url,
-                                fileName = result.assetName ?: "CPPlayer-${result.versionName}",
-                                expectedSha256 = result.assetSha256,
-                                expectedSize = result.assetSize,
+                                fileName = pendingAsset?.name ?: result.assetName ?: "CPPlayer-${result.versionName}",
+                                expectedSha256 = pendingAsset?.sha256 ?: result.assetSha256,
+                                expectedSize = pendingAsset?.size ?: result.assetSize,
                                 beforeInstall = {
                                     if (!policy.removeLegacyProviders || ids.isEmpty()) true
                                     else AppModel.scheduleLegacyProviderCleanup(ids, result.versionName) is BackendResult.Success

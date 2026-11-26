@@ -4,7 +4,6 @@ import cp.player.app.ui.component.CpText
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -16,7 +15,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -83,7 +81,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ripple
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import cp.player.app.ui.theme.cpElevatedSurface
+import cp.player.app.ui.theme.cpCardSurface
 import cp.player.app.ui.theme.cpNestedSurface
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBar
@@ -92,7 +90,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -105,32 +102,40 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.screen.Screen
+import androidx.compose.ui.unit.sp
+import cp.player.app.ui.navigation.pageModel
+import cp.player.app.ui.navigation.RoutePage
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.foundation.layout.width
 import coil3.compose.AsyncImage
 import cp.player.app.i18n.cpStrings
+import cp.player.app.platform.isAndroidPlatform
+import cp.player.app.ui.util.DesktopShell
 import cp.player.app.AppModel
 import cp.player.app.presentation.navigation.AppRoute
 import cp.player.app.ui.anim.LocalNavAnimatedVisibilityScope
 import cp.player.app.ui.anim.LocalSharedTransitionScope
+import cp.player.app.ui.component.LocalPlayerAllowSharedBounds
+import cp.player.app.ui.component.LocalPlayerDismissHandler
+import cp.player.app.ui.component.LocalPlayerShareContainer
 import cp.player.app.ui.component.isWindowAdaptiveExpanded
+import cp.player.app.ui.component.playerDismissDragGesture
 import cp.player.app.ui.component.LazyScrollColumn
 import cp.player.app.ui.component.LegacyModalBottomSheet
 import cp.player.app.ui.component.cpFluidBackground
 import cp.player.app.ui.component.shouldPauseFluidBackgroundDuringNavigation
 import cp.player.app.ui.component.desktopPagerMouseControl
 import cp.player.app.ui.component.PlayerMoreSheets
+import cp.player.app.ui.component.PlayerSectionTabs
 import cp.player.app.ui.component.ModernPlayerScreenContent
 import cp.player.app.ui.component.ProviderFeatureGate
 import cp.player.app.ui.component.QueueBottomSheet
@@ -143,6 +148,7 @@ import cp.player.app.ui.util.SeekAvailability
 import cp.player.app.ui.theme.LocalIsDarkTheme
 import cp.player.app.ui.util.formatTimeMs
 import cp.player.app.ui.util.next
+import cp.player.app.ui.util.rememberCoverImageRequest
 import cp.player.app.ui.navigation.LocalAppNavigator
 import cp.player.core.music.Comment
 import cp.player.core.playback.LyricsState
@@ -171,7 +177,7 @@ private fun cp.player.core.playback.PlaybackUiState.withoutProgress(): cp.player
  * 四页 HorizontalPager：歌词 / 播放器 / 评论 / 相似歌曲。播放器页可下拉关闭。
  * 已接入：收藏（likeSong）、加入歌单、睡眠定时、不感兴趣、随机播放、评论点赞。
  */
-class PlayerScreen : Screen {
+class PlayerScreen : RoutePage {
 
     @OptIn(ExperimentalMaterial3Api::class, androidx.compose.animation.ExperimentalSharedTransitionApi::class)
     @Composable
@@ -203,12 +209,116 @@ class PlayerScreen : Screen {
         // 本页的「收起」是折叠语义（↓ / ✕），与「返回上一页」不是一回事，所以不参与返回键统一。
         state.currentTrack?.let { cp.player.app.ui.util.DesktopRouteTitle(it.name) }
 
-        Box(Modifier.fillMaxSize()) {
-            if (isWindowAdaptiveExpanded() && state.currentTrack != null) {
-                val navAnimScope = LocalNavAnimatedVisibilityScope.current
+        val mobile = isAndroidPlatform() || DesktopShell.isMobileMode
+        val isTablet = cp.player.app.ui.component.isTabletLayout()
+        val expanded = isWindowAdaptiveExpanded()
+        val sharedScope = LocalSharedTransitionScope.current
+        val navAnimScope = LocalNavAnimatedVisibilityScope.current
+        val dismissHandler = LocalPlayerDismissHandler.current
+        val allowSharedBounds = LocalPlayerAllowSharedBounds.current
+        val onClosePlayer = {
+            if (dismissHandler != null) dismissHandler.requestDismiss()
+            else navigator.pop()
+            Unit
+        }
+        val currentTrack = effectiveState.currentTrack
+        val sharedContainerModifier = if (allowSharedBounds && LocalPlayerShareContainer.current && sharedScope != null && navAnimScope != null) {
+            with(sharedScope) {
+                Modifier.sharedBounds(
+                    rememberSharedContentState("player-container"),
+                    navAnimScope,
+                    zIndexInOverlay = 0f,
+                )
+            }
+        } else Modifier
+        val sharedCoverModifier = if (allowSharedBounds && sharedScope != null && navAnimScope != null && currentTrack != null) {
+            with(sharedScope) {
+                Modifier.sharedBounds(
+                    rememberSharedContentState("cover-${currentTrack.id}"),
+                    navAnimScope,
+                    zIndexInOverlay = 1f,
+                    clipInOverlayDuringTransition = OverlayClip(MaterialTheme.shapes.medium),
+                )
+            }
+        } else Modifier
+        val sharedTitleModifier = if (allowSharedBounds && sharedScope != null && navAnimScope != null && currentTrack != null) {
+            with(sharedScope) {
+                Modifier.sharedBounds(
+                    rememberSharedContentState("title-${currentTrack.id}"),
+                    navAnimScope,
+                    resizeMode = androidx.compose.animation.SharedTransitionScope.ResizeMode.scaleToBounds(
+                        ContentScale.Fit,
+                        Alignment.CenterStart,
+                    ),
+                    zIndexInOverlay = 1f,
+                )
+            }
+        } else Modifier
+        val sharedArtistModifier = if (allowSharedBounds && sharedScope != null && navAnimScope != null && currentTrack != null) {
+            with(sharedScope) {
+                Modifier.sharedBounds(
+                    rememberSharedContentState("artist-${currentTrack.id}"),
+                    navAnimScope,
+                    resizeMode = androidx.compose.animation.SharedTransitionScope.ResizeMode.scaleToBounds(
+                        ContentScale.Fit,
+                        Alignment.CenterStart,
+                    ),
+                    zIndexInOverlay = 1f,
+                )
+            }
+        } else Modifier
+
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val phoneLandscape = mobile && maxWidth >= 480.dp && maxHeight < 480.dp && maxWidth > maxHeight
+            if (phoneLandscape && state.currentTrack != null) {
+                LandscapePlayerScreen(
+                    state = effectiveState,
+                    positionFlow = positionFlow,
+                    initialPositionMs = initialPositionMs,
+                    onBack = onClosePlayer,
+                    onTogglePlay = controller::togglePlayPause,
+                    onSeek = controller::seekTo,
+                    onSkipNext = controller::skipNext,
+                    onSkipPrev = controller::skipPrevious,
+                    onRepeat = onRepeat,
+                    onShuffle = controller::toggleShuffle,
+                    onLike = { AppModel.toggleFavoriteOf(state.currentTrack?.id) },
+                    onPlayAt = { idx -> scope.launch { controller.playAt(idx) } },
+                    onMove = { from, to -> scope.launch { controller.moveQueueItem(from, to) } },
+                    onRemoveQueue = { idx -> scope.launch { controller.removeQueueItem(idx) } },
+                    onClearQueue = { scope.launch { controller.clearQueue() } },
+                    transitionRunning = navAnimScope?.transition?.isRunning == true,
+                    artworkModifier = sharedCoverModifier,
+                    titleModifier = sharedTitleModifier,
+                    artistModifier = sharedArtistModifier,
+                )
+            } else if (isTablet) {
+                TabletPlayerScreen(
+                    state = effectiveState,
+                    positionFlow = positionFlow,
+                    initialPositionMs = initialPositionMs,
+                    onBack = onClosePlayer,
+                    onTogglePlay = controller::togglePlayPause,
+                    onSeek = controller::seekTo,
+                    onSkipNext = controller::skipNext,
+                    onSkipPrev = controller::skipPrevious,
+                    onRepeat = onRepeat,
+                    onShuffle = controller::toggleShuffle,
+                    onLike = { AppModel.toggleFavoriteOf(state.currentTrack?.id) },
+                    onPlayAt = { idx -> scope.launch { controller.playAt(idx) } },
+                    onMove = { from, to -> scope.launch { controller.moveQueueItem(from, to) } },
+                    onRemoveQueue = { idx -> scope.launch { controller.removeQueueItem(idx) } },
+                    onClearQueue = { scope.launch { controller.clearQueue() } },
+                    transitionRunning = navAnimScope?.transition?.isRunning == true,
+                    containerModifier = sharedContainerModifier,
+                    artworkModifier = sharedCoverModifier,
+                    titleModifier = sharedTitleModifier,
+                    artistModifier = sharedArtistModifier,
+                )
+            } else if (expanded && state.currentTrack != null) {
                 DesktopPlayerScreen(
                     state = effectiveState,
-                    onBack = { navigator.pop() },
+                    onBack = onClosePlayer,
                     onTogglePlay = controller::togglePlayPause,
                     onSeek = controller::seekTo,
                     onSkipNext = controller::skipNext,
@@ -223,10 +333,12 @@ class PlayerScreen : Screen {
                     onRemoveQueue = { idx -> scope.launch { controller.removeQueueItem(idx) } },
                     onClearQueue = { scope.launch { controller.clearQueue() } },
                     transitionRunning = navAnimScope?.transition?.isRunning == true,
+                    containerModifier = sharedContainerModifier,
+                    artworkModifier = sharedCoverModifier,
+                    titleModifier = sharedTitleModifier,
+                    artistModifier = sharedArtistModifier,
                 )
             } else {
-                val sharedScope = LocalSharedTransitionScope.current
-                val navAnimScope = LocalNavAnimatedVisibilityScope.current
                 val modernPlayerEnabled by AppModel.modernMobilePlayerEnabledFlow.collectAsState()
 
                 if (sharedScope != null && navAnimScope != null) {
@@ -237,7 +349,7 @@ class PlayerScreen : Screen {
                                 positionFlow = positionFlow,
                                 initialPositionMs = initialPositionMs,
                                 animatedVisibilityScope = navAnimScope,
-                                onBack = { navigator.pop() },
+                                onBack = onClosePlayer,
                                 onTogglePlay = controller::togglePlayPause,
                                 onSeek = controller::seekTo,
                                 onSkipNext = controller::skipNext,
@@ -255,7 +367,7 @@ class PlayerScreen : Screen {
                                 positionFlow = positionFlow,
                                 initialPositionMs = initialPositionMs,
                                 animatedVisibilityScope = navAnimScope,
-                                onBack = { navigator.pop() },
+                                onBack = onClosePlayer,
                                 onTogglePlay = controller::togglePlayPause,
                                 onSeek = controller::seekTo,
                                 onSkipNext = controller::skipNext,
@@ -278,7 +390,7 @@ class PlayerScreen : Screen {
                                     positionFlow = positionFlow,
                                     initialPositionMs = initialPositionMs,
                                     animatedVisibilityScope = this,
-                                    onBack = { navigator.pop() },
+                                    onBack = onClosePlayer,
                                     onTogglePlay = controller::togglePlayPause,
                                     onSeek = controller::seekTo,
                                     onSkipNext = controller::skipNext,
@@ -296,7 +408,7 @@ class PlayerScreen : Screen {
                                     positionFlow = positionFlow,
                                     initialPositionMs = initialPositionMs,
                                     animatedVisibilityScope = this,
-                                    onBack = { navigator.pop() },
+                                    onBack = onClosePlayer,
                                     onTogglePlay = controller::togglePlayPause,
                                     onSeek = controller::seekTo,
                                     onSkipNext = controller::skipNext,
@@ -391,21 +503,13 @@ fun androidx.compose.animation.SharedTransitionScope.PlayerScreenContent(
     val scope = rememberCoroutineScope()
 
     // 下拉关闭手势（仅播放器页启用）
-    //
-    // 旧实现「不灵敏」有两个来源，这里同时修掉：
-    //  1. 每个 onVerticalDrag 都 `scope.launch { offsetY.snapTo(...) }` —— 拖一个事件起一个协程，
-    //     手指的增量被协程调度吞掉一截，跟手感直接掉一档；现在拖动只写一个 float 状态，零协程。
-    //  2. 判定只有「拖过 maxDrag/2 = 200dp」一条，没有速度判定 —— 快速下甩一下因为没到 200dp
-    //     又弹回去，看起来就是「没反应」；现在位移过 96dp、**或者**下甩速度过 700dp/s 都算收起。
     var isOnPlayerPage by remember { mutableStateOf(true) }
-    var pullOffset by remember { mutableFloatStateOf(0f) }
-    val dismissDragPx = with(LocalDensity.current) { 96.dp.toPx() }
+    val offsetY = remember { Animatable(0f) }
     val maxDrag = with(LocalDensity.current) { 400.dp.toPx() }
-    val pullVelocity = remember { VelocityTracker() }
 
     LaunchedEffect(pagerState.settledPage) {
         isOnPlayerPage = pagerState.settledPage == 1
-        if (pagerState.settledPage != 1 && pullOffset > 0f) pullOffset = 0f
+        if (pagerState.settledPage != 1 && offsetY.value > 0f) offsetY.snapTo(0f)
     }
 
     // 背景：流体网格渐变（仿 Apple Music），用户关掉时回退到竖向渐变。
@@ -620,13 +724,25 @@ fun androidx.compose.animation.SharedTransitionScope.PlayerScreenContent(
         }
     }
 
+    val dismissHandler = LocalPlayerDismissHandler.current
+    val allowSharedBounds = LocalPlayerAllowSharedBounds.current
+    val containerSharedModifier = if (allowSharedBounds && LocalPlayerShareContainer.current) {
+        Modifier.sharedBounds(
+            sharedContentState = rememberSharedContentState(key = "player-container"),
+            animatedVisibilityScope = animatedVisibilityScope,
+            zIndexInOverlay = 0f,
+        )
+    } else Modifier
+
     Box(
         Modifier
             .fillMaxSize()
-            .sharedBounds(
-                sharedContentState = rememberSharedContentState(key = "player-container"),
-                animatedVisibilityScope = animatedVisibilityScope
+            .then(
+                if (dismissHandler == null && offsetY.value > 0f) {
+                    Modifier.offset { IntOffset(0, offsetY.value.roundToInt()) }
+                } else Modifier
             )
+            .then(containerSharedModifier)
             .cpFluidBackground(
                 enabled = fluidBackground,
                 fallback = bgBrush,
@@ -646,55 +762,38 @@ fun androidx.compose.animation.SharedTransitionScope.PlayerScreenContent(
             modifier = Modifier
                 .fillMaxSize()
                 .then(
-                    if (isOnPlayerPage) Modifier.pointerInput(Unit) {
-                        detectVerticalDragGestures(
-                            onDragStart = { pullVelocity.resetTracking() },
-                            onDragEnd = {
-                                val speed = runCatching { pullVelocity.calculateVelocity().y }.getOrDefault(0f)
-                                if (pullOffset > dismissDragPx || speed > 700f) {
-                                    // 直接归零，把视觉交还给路由退场动画，避免「先弹回再消失」
-                                    pullOffset = 0f
-                                    onBack()
-                                } else {
-                                    scope.launch {
-                                        androidx.compose.animation.core.animate(
-                                            initialValue = pullOffset,
-                                            targetValue = 0f,
-                                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                        ) { value, _ -> pullOffset = value }
+                    if (!isOnPlayerPage) {
+                        Modifier
+                    } else if (dismissHandler != null) {
+                        Modifier.playerDismissDragGesture(dismissHandler)
+                    } else {
+                        Modifier.pointerInput(Unit) {
+                            detectVerticalDragGestures(
+                                onDragEnd = {
+                                    if (offsetY.value > 0) {
+                                        val target = if (offsetY.value > maxDrag / 2) maxDrag * 2 else 0f
+                                        if (target > 0f) onBack()
+                                        scope.launch {
+                                            offsetY.animateTo(target, tween(250))
+                                        }
                                     }
-                                }
-                            },
-                            onDragCancel = {
-                                scope.launch {
-                                    androidx.compose.animation.core.animate(
-                                        initialValue = pullOffset,
-                                        targetValue = 0f,
-                                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                    ) { value, _ -> pullOffset = value }
-                                }
-                            },
-                            onVerticalDrag = { change, dragAmount ->
-                                pullVelocity.addPosition(change.uptimeMillis, change.position)
-                                if (dragAmount > 0f || pullOffset > 0f) {
-                                    pullOffset = (pullOffset + dragAmount).coerceIn(0f, maxDrag)
-                                    change.consume()
-                                }
-                            },
-                        )
-                    } else Modifier
-                )
-                // ⚠️ 这里**不能**用 `Modifier.offset` 位移整页：1.8.1 起播放页的标题/艺人与
-                // MiniPlayer 之间接了 sharedBounds，封面飞行器也搬到了整窗最顶层 —— 位移只作用于
-                // 「内容层」，共享元素按 root 坐标定位，结果是标题/艺人留在原地、压到封面上（下拉错位）。
-                // 改成纯图层的淡出：拖动时整页轻微变暗，松手按位移/速度决定是否收起。
-                // 拖动时整页跟着手指下沉 —— 用 graphicsLayer 的 translationY（绘制阶段变换）
-                // 而不是 `Modifier.offset`（布局阶段位移）：1.8.1 的封面/标题走 sharedBounds，
-                // 布局位移会让共享元素各自为政（标题留在原地压到封面上）；图层位移是整层一起走。
-                .graphicsLayer {
-                    translationY = pullOffset
-                    alpha = 1f - (pullOffset / dismissDragPx).coerceIn(0f, 0.35f)
-                },
+                                },
+                                onDragCancel = {
+                                    if (offsetY.value > 0) {
+                                        scope.launch { offsetY.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow)) }
+                                    }
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    if (dragAmount > 0 || offsetY.value > 0) {
+                                        val newOffset = (offsetY.value + dragAmount).coerceIn(0f, maxDrag * 2)
+                                        scope.launch { offsetY.snapTo(newOffset) }
+                                        change.consume()
+                                    }
+                                },
+                            )
+                        }
+                    }
+                ),
             color = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
@@ -782,7 +881,7 @@ fun androidx.compose.animation.SharedTransitionScope.PlayerScreenContent(
                                                 onClick = { showQueueSheet = true },
                                                 modifier = Modifier.padding(end = 8.dp),
                                                 colors = IconButtonDefaults.filledIconButtonColors(
-                                                    containerColor = cpElevatedSurface().copy(alpha = if (isDark) 0.6f else 0.8f),
+                                                    containerColor = cpCardSurface(),
                                                     contentColor = MaterialTheme.colorScheme.onSurface,
                                                 ),
                                             ) {
@@ -798,7 +897,7 @@ fun androidx.compose.animation.SharedTransitionScope.PlayerScreenContent(
                                             onClick = { showQueueSheet = true },
                                             modifier = Modifier.padding(end = 8.dp),
                                             colors = IconButtonDefaults.filledIconButtonColors(
-                                                containerColor = cpElevatedSurface().copy(alpha = if (isDark) 0.6f else 0.8f),
+                                                containerColor = cpCardSurface(),
                                                 contentColor = MaterialTheme.colorScheme.onSurface,
                                             ),
                                         ) {
@@ -868,8 +967,6 @@ fun androidx.compose.animation.SharedTransitionScope.PlayerScreenContent(
                                 onShuffle = onShuffle,
                                 onLikeClick = { AppModel.toggleFavoriteOf(track.id) },
                                 onArtistClick = onArtistClick,
-                                // 弹层本体与全部动作实现已收进共享宿主 PlayerMoreSheets
-                                // （本页末尾调用），这里只传两个入口回调。
                                 onMoreClick = { moreSheets.showMoreMenu = true },
                                 onSleepTimer = {
                                     moreSheets.showMoreMenu = false
@@ -894,10 +991,6 @@ fun androidx.compose.animation.SharedTransitionScope.PlayerScreenContent(
             onMove = onMoveQueue,
             onClear = onClearQueue,
             onClose = { showQueueSheet = false },
-            onOpenSimilar = {
-                showQueueSheet = false
-                moreSheets.showSimilarSongs = true
-            },
         )
     }
 
@@ -1089,36 +1182,64 @@ private fun androidx.compose.animation.SharedTransitionScope.PlayerPage(
                 animationSpec = tween(260),
                 label = "coverScale",
             )
+            val allowSharedBounds = LocalPlayerAllowSharedBounds.current
+            val isTransitionRunning = animatedVisibilityScope.transition.isRunning
+            val coverShape = RoundedCornerShape(coverCorner)
+            val coverSharedModifier = if (allowSharedBounds) {
+                Modifier.sharedBounds(
+                    sharedContentState = rememberSharedContentState(key = "cover-${track.id}"),
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    zIndexInOverlay = 1f,
+                    clipInOverlayDuringTransition = OverlayClip(coverShape),
+                )
+            } else Modifier
+            val titleSharedModifier = if (allowSharedBounds) {
+                Modifier.sharedBounds(
+                    sharedContentState = rememberSharedContentState(key = "title-${track.id}"),
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    resizeMode = androidx.compose.animation.SharedTransitionScope.ResizeMode.scaleToBounds(
+                        ContentScale.Fit,
+                        Alignment.CenterStart,
+                    ),
+                    zIndexInOverlay = 1f,
+                )
+            } else Modifier
+            val artistSharedModifier = if (allowSharedBounds) {
+                Modifier.sharedBounds(
+                    sharedContentState = rememberSharedContentState(key = "artist-${track.id}"),
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    resizeMode = androidx.compose.animation.SharedTransitionScope.ResizeMode.scaleToBounds(
+                        ContentScale.Fit,
+                        Alignment.CenterStart,
+                    ),
+                    zIndexInOverlay = 1f,
+                )
+            } else Modifier
             Surface(
-                shape = RoundedCornerShape(coverCorner),
+                shape = coverShape,
                 modifier = Modifier
                     .size(artSize)
                     .aspectRatio(1f)
-                    .sharedBounds(
-                        sharedContentState = rememberSharedContentState(key = "cover-${track.id}"),
-                        animatedVisibilityScope = animatedVisibilityScope
-                    )
+                    .then(coverSharedModifier)
                     .graphicsLayer {
                         scaleX = coverScale
                         scaleY = coverScale
                     }
-                    .clip(RoundedCornerShape(coverCorner)),
+                    .clip(coverShape),
                 color = cpNestedSurface().copy(alpha = 0.5f),
                 shadowElevation = coverElevation,
             ) {
-                if (!track.coverUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = track.coverUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    cp.player.app.ui.component.CpCoverPlaceholder(
-                        modifier = Modifier.fillMaxSize(),
-                        corner = coverCorner,
-                    )
-                }
+                cp.player.app.ui.component.CpArtworkImage(
+                    request = rememberCoverImageRequest(
+                        track.coverUrl,
+                        targetSizeDp = artSize,
+                        placeholderBucketPx = 128,
+                    ),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    placeholderCorner = coverCorner,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
 
             Spacer(Modifier.height(artToInfoGap))
@@ -1137,11 +1258,8 @@ private fun androidx.compose.animation.SharedTransitionScope.PlayerPage(
                         maxLines = 1,
                         color = MaterialTheme.colorScheme.onSurface,
                         emphasized = true,
-                        marqueeEnabled = state.isPlaying,
-                        modifier = Modifier.sharedBounds(
-                            sharedContentState = rememberSharedContentState(key = "title-${track.id}"),
-                            animatedVisibilityScope = animatedVisibilityScope,
-                        )
+                        marqueeEnabled = state.isPlaying && !isTransitionRunning,
+                        modifier = titleSharedModifier,
                     )
                     Spacer(Modifier.height(if (isUltraCompact) 0.dp else 2.dp))
                     cp.player.app.ui.component.TrackArtistText(
@@ -1150,10 +1268,8 @@ private fun androidx.compose.animation.SharedTransitionScope.PlayerPage(
                         style = if (isUltraCompact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        modifier = Modifier.sharedBounds(
-                            sharedContentState = rememberSharedContentState(key = "artist-${track.id}"),
-                            animatedVisibilityScope = animatedVisibilityScope,
-                        )
+                        marqueeEnabled = state.isPlaying && !isTransitionRunning,
+                        modifier = artistSharedModifier,
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1218,7 +1334,6 @@ private fun androidx.compose.animation.SharedTransitionScope.PlayerPage(
                 )
             }
 
-            // 底部工具行：随机 / 循环 / 睡眠定时 / 更多
             cp.player.app.ui.component.CpFloatingToolbar(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             ) {
@@ -1260,83 +1375,26 @@ private fun androidx.compose.animation.SharedTransitionScope.PlayerPage(
 // ui/component/PlayerMoreBottomSheet.kt —— 桌面播放页（DesktopPlayerScreen）与
 // 窄屏布局共用同一宿主，SongInfoDialog 作为其二级弹窗必须同处一处。
 
-/**
- * 手机端顶栏页面指示器：极简圆角胶囊形态。
- *
- * 将原先占用较大面积的「歌词 / 歌曲 / 评论」大文本胶囊收敛为精致灵动的微型指示条：
- * - 紧凑磨砂胶囊外壳，视觉轻盈、不抢封面与全屏背景视线；
- * - 选中的页面胶囊自然伸展为指示条，未选中为微圆点，伴随平滑弹簧动效；
- * - 保留直接点击切换能力与无障碍语义（歌词 / 歌曲 / 评论），让用户一眼可知有三个界面可滑动切换。
- */
 @Composable
 private fun MobilePlayerTabSelector(
     currentPage: Int,
     onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val s = cpStrings()
-    val isDark = LocalIsDarkTheme.current
     val supportsComments = rememberActiveProviderSupports(ProviderCapability.COMMENTS)
     val tabs = remember(supportsComments, s) {
-        if (supportsComments) {
-            listOf(s.player.tabLyrics, s.player.tabSong, s.player.tabComments)
-        } else {
-            listOf(s.player.tabLyrics, s.player.tabSong)
+        buildList {
+            add(Icons.Rounded.Lyrics to s.player.tabLyrics)
+            add(Icons.Rounded.MusicNote to s.player.tabSong)
+            if (supportsComments) add(Icons.AutoMirrored.Rounded.Comment to s.player.tabComments)
         }
     }
-    Surface(
-        modifier = modifier,
-        shape = CircleShape,
-        color = cpElevatedSurface().copy(alpha = if (isDark) 0.30f else 0.40f),
-        border = BorderStroke(
-            width = 0.5.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.15f else 0.25f),
-        ),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            tabs.forEachIndexed { index, title ->
-                val selected = currentPage == index
-                val indicatorWidth by animateDpAsState(
-                    targetValue = if (selected) 18.dp else 5.dp,
-                    animationSpec = CpMotion.spatial(),
-                    label = "mobileIndicatorWidth$index",
-                )
-                val indicatorColor by animateColorAsState(
-                    targetValue = if (selected) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (isDark) 0.35f else 0.45f)
-                    },
-                    animationSpec = CpMotion.effects(),
-                    label = "mobileIndicatorColor$index",
-                )
-
-                Box(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(),
-                            onClickLabel = s.player.switchToTab(title),
-                        ) { onSelect(index) }
-                        .padding(vertical = 3.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .height(4.5.dp)
-                            .width(indicatorWidth)
-                            .clip(CircleShape)
-                            .background(indicatorColor)
-                    )
-                }
-            }
-        }
-    }
+    PlayerSectionTabs(
+        tabs = tabs,
+        selectedTab = currentPage,
+        onTabSelect = onSelect,
+        touchFriendly = isAndroidPlatform(),
+    )
 }
 
 @Composable
@@ -1361,8 +1419,6 @@ private fun ProgressRow(
         // 旧版同款**直线**进度条 —— 1:1 移植自 reference/cp-player-legacy 的 ProgressSection
         // （移动端不用波形；波形留给桌面播放页的 CpSeekBar）。视觉就是 M3 Slider 的
         // 默认 Expressive 观感。拖动期间由 CpPlainSeekBar 自己接管视觉，松手才回调 onSeek。
-        // 大播放器维持原来的直线 Slider：波形只给迷你播放器那种细线用，
-        // 这里整条泛波会跟封面、歌词抢视觉。
         cp.player.app.ui.component.CpPlainSeekBar(
             positionMs = positionMs,
             durationMs = duration,
@@ -1470,7 +1526,10 @@ fun DesktopLyricsContent(
     onRepeat: () -> Unit = {},
     onLikeClick: () -> Unit = {},
     onChangeSource: (() -> Unit)? = null,
+    lineFontSize: TextUnit = 28.sp,
+    contentPadding: PaddingValues = PaddingValues(vertical = 24.dp, horizontal = 16.dp),
     modifier: Modifier = Modifier,
+    focusedPaneStyle: Boolean = false,
 ) {
     Box(
         modifier = modifier.fillMaxSize(),
@@ -1483,11 +1542,13 @@ fun DesktopLyricsContent(
             showTranslation = showTranslation,
             onSeek = onSeek,
             onChangeSource = onChangeSource,
+            lineFontSize = lineFontSize,
             modifier = Modifier
                 .widthIn(max = 860.dp)
                 .fillMaxWidth()
                 .fillMaxHeight(),
-            contentPadding = PaddingValues(vertical = 24.dp, horizontal = 16.dp),
+            contentPadding = contentPadding,
+            focusedPaneStyle = focusedPaneStyle,
         )
     }
 }

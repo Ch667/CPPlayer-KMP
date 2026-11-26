@@ -1,17 +1,18 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
 package cp.player.app.ui.component
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,8 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.BugReport
@@ -34,13 +34,12 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.NewReleases
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.RocketLaunch
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -59,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import cp.player.app.i18n.AppUpdateStrings
 import cp.player.app.i18n.cpStrings
 import cp.player.app.platform.desktopPlatform
@@ -67,383 +67,248 @@ import cp.player.app.platform.openUrl
 import cp.player.app.ui.theme.cpSheetInnerSurface
 import cp.player.app.ui.util.formatBytes
 import cp.player.app.update.AppUpdateChecker
-import cp.player.app.version.AppVersion
 
-/**
- * 软件更新弹窗。
- *
- * 遵循 Material 3 Expressive (M3E) 设计规范与现代工程表现力视觉层级：
- * - 风格严谨、正式、高信息密度，界面与文案完全剔除任何 Emoji；
- * - 规范的头部 Hero 区域：展示当前版本至目标版本的演进、架构格式、包体大小与发布时间；
- * - 智能结构化更新日志渲染：深度适配 Release CI 中由 AI 提炼的结构化更新内容
- *   （功能新增、问题修复、性能优化、界面与交互、其他改进），
- *   并支持优雅回退展示传统日志；
- * - 强表现力操作按钮组，桌面端与移动端自适应排版。
- */
-@OptIn(ExperimentalLayoutApi::class)
+/** 软件更新弹窗：沿用 Kazumi 的信息顺序，用主题色区分安装包与主要操作。 */
 @Composable
 fun AppUpdateDialog(
     result: AppUpdateChecker.UpdateResult,
     onDismiss: () -> Unit,
     onDownload: () -> Unit,
+    onDownloadAsset: (AppUpdateChecker.UpdateAsset) -> Unit,
+    isAutoCheck: Boolean = false,
+    onDisableAutoUpdate: (() -> Unit)? = null,
 ) {
-    val isExpanded = LocalIsExpanded.current
     val s = cpStrings().update
+    val colors = MaterialTheme.colorScheme
+    val installTypes = resolveInstallTypes(result, s)
 
-    // 对话框 = 浮层层；日志块 = 浮层内部的次级块。两者刻意不同档，否则整块糊在一起。
-    val containerColor = cp.player.app.ui.theme.cpSheetSurface()
-    val changelogContainerColor = cp.player.app.ui.theme.cpSheetInnerSurface()
-
-    AlertDialog(
+    CpAlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
         modifier = Modifier
-            .widthIn(min = 320.dp, max = if (isExpanded) 620.dp else 440.dp)
-            .fillMaxWidth(if (isExpanded) 0.65f else 0.94f),
-        shape = MaterialTheme.shapes.extraLarge,
-        containerColor = containerColor,
-        icon = {
-            // M3E 风格的 Hero 图标容器
-            Surface(
-                shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(52.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.RocketLaunch,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(26.dp),
-                    )
-                }
-            }
-        },
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .widthIn(max = 540.dp)
+            .fillMaxWidth(),
         title = {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                CpText(
-                    text = s.title,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-
-                // 版本迭代指示栏：当前版本 ➔ 目标版本
                 Surface(
                     shape = MaterialTheme.shapes.medium,
-                    color = changelogContainerColor,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                    color = colors.primaryContainer,
+                    contentColor = colors.onPrimaryContainer,
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        CpText(
-                            text = "v${AppVersion.versionName}",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Surface(
-                            shape = MaterialTheme.shapes.small,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                        ) {
-                            CpText(
-                                text = "v${result.versionName}",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            )
-                        }
+                    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.NewReleases, contentDescription = null)
                     }
                 }
+                CpText(
+                    text = s.titleWithVersion(result.versionName),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = colors.onSurface,
+                    maxLines = Int.MAX_VALUE,
+                )
             }
         },
         text = {
             Column(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // 远端重要公告 (Banner)
-                result.announcement?.let { notice ->
-                    Surface(
-                        shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.tertiaryContainer,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.Top,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                CpText(
-                                    text = stripEmojis(notice.title),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                )
-                                CpText(
-                                    text = stripEmojis(notice.message),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                    maxLines = Int.MAX_VALUE,
-                                )
-                            }
-                        }
-                    }
-                }
+                CpText(
+                    text = stripEmojis(result.changelog?.takeIf { it.isNotBlank() } ?: s.title),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurface,
+                    maxLines = Int.MAX_VALUE,
+                )
 
-                // 破坏性变更/关键警示 (Critical Alert Banner)
-                result.destructivePolicy?.let { policy ->
-                    Surface(
-                        shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.Top,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                CpText(
-                                    text = stripEmojis(policy.title),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                )
-                                CpText(
-                                    text = stripEmojis(policy.message),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    maxLines = Int.MAX_VALUE,
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // 高信息密度元数据胶囊条 (Meta Chips Bar)
-                val isPreRelease = result.versionName.contains("-") || result.versionName.contains("debug")
-                val pkgInfo = resolveTargetPackageInfo(result.assetName, s)
-
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    // 发布渠道
+                result.publishedAt?.takeIf { it.isNotBlank() }?.take(10)?.let { date ->
                     ExpressiveMetaChip(
-                        icon = if (isPreRelease) Icons.Default.NewReleases else Icons.Default.RocketLaunch,
-                        text = if (isPreRelease) "预发布版" else "正式版",
-                        tint = if (isPreRelease) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
-                        containerColor = if (isPreRelease) {
-                            MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f)
-                        } else {
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                        },
-                    )
-
-                    // 目标包格式
-                    ExpressiveMetaChip(
-                        icon = pkgInfo.icon,
-                        text = pkgInfo.label,
-                    )
-
-                    // 安装包体积
-                    result.assetSize?.takeIf { it > 0 }?.let { bytes ->
-                        ExpressiveMetaChip(
-                            icon = Icons.Default.Storage,
-                            text = formatBytes(bytes),
-                        )
-                    }
-
-                    // 发布日期
-                    result.publishedAt?.take(10)?.let { date ->
-                        ExpressiveMetaChip(
-                            icon = Icons.Default.CalendarToday,
-                            text = s.publishedAt(date),
-                        )
-                    }
-                }
-
-                // 更新说明小标题
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                ) {
-                    CpText(
-                        text = s.changelogTitle,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        icon = Icons.Default.CalendarToday,
+                        text = s.publishedAt(date),
                     )
                 }
 
-                // 更新日志滚动容器
-                Surface(
-                    shape = MaterialTheme.shapes.large,
-                    color = changelogContainerColor,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 120.dp, max = if (isExpanded) 380.dp else 270.dp),
-                ) {
-                    val scrollState = rememberScrollState()
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(scrollState)
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        val parsedChangelog = parseChangelog(result.changelog)
-
-                        if (parsedChangelog.sections.isEmpty() && parsedChangelog.uncategorized.isEmpty()) {
-                            CpText(
-                                text = s.defaultChangelog,
-                                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = Int.MAX_VALUE,
-                            )
-                        } else {
-                            // 渲染结构化分类卡片
-                            for (section in parsedChangelog.sections) {
-                                ExpressiveCategoryCard(section)
-                            }
-
-                            // 渲染未分类或传统段落条目
-                            if (parsedChangelog.uncategorized.isNotEmpty()) {
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    for (item in parsedChangelog.uncategorized) {
-                                        ChangelogItemRow(item, dotColor = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
-                            }
-
-                            // 查看完整变更对比链接
-                            parsedChangelog.compareUrl?.let { url ->
-                                Surface(
-                                    shape = MaterialTheme.shapes.small,
-                                    color = changelogContainerColor,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(MaterialTheme.shapes.small)
-                                        .clickable { openUrl(url) }
-                                        .padding(top = 4.dp),
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(15.dp),
-                                        )
-                                        Spacer(Modifier.width(6.dp))
-                                        CpText(
-                                            text = s.viewDiffOnGithub,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.SemiBold,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                if (installTypes.isNotEmpty()) {
+                    UpdateInstallPackages(s.installPackage, installTypes, onDownloadAsset)
                 }
             }
         },
         confirmButton = {
-            Button(
-                onClick = onDownload,
-                shape = MaterialTheme.shapes.medium,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-                modifier = Modifier.height(42.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Download,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-                val downloadButtonText = result.assetSize?.takeIf { it > 0 }?.let { bytes ->
-                    "${s.downloadNow} · ${formatBytes(bytes)}"
-                } ?: s.downloadNow
-                CpText(
-                    text = downloadButtonText,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        },
-        dismissButton = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                OutlinedButton(
-                    onClick = { openUrl(result.releaseUrl) },
-                    shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier.height(42.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    CpText(
-                        text = s.releasePage,
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                }
-                TextButton(
-                    onClick = onDismiss,
-                    shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier.height(42.dp),
-                ) {
-                    CpText(
-                        text = s.later,
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                }
-            }
+            AppUpdateActions(
+                releaseUrl = result.releaseUrl,
+                onDismiss = onDismiss,
+                onDownload = onDownload,
+                onDisableAutoUpdate = onDisableAutoUpdate.takeIf { isAutoCheck },
+            )
         },
     )
+}
+
+@Composable
+private fun UpdateInstallPackages(
+    title: String,
+    installTypes: List<UpdateInstallType>,
+    onDownloadAsset: (AppUpdateChecker.UpdateAsset) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = cpSheetInnerSurface(),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            CpText(
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.onSurfaceVariant,
+                maxLines = Int.MAX_VALUE,
+                modifier = Modifier.padding(start = 4.dp),
+            )
+
+            for (installType in installTypes) {
+                OutlinedButton(
+                    onClick = { onDownloadAsset(installType.asset) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shapes = ButtonDefaults.shapes(),
+                    border = BorderStroke(1.dp, colors.outlineVariant),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.onSurface),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        tint = colors.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        CpText(
+                            text = installType.label,
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = Int.MAX_VALUE,
+                        )
+                        installType.asset.size?.takeIf { it > 0L }?.let { size ->
+                            CpText(
+                                text = formatBytes(size),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                        contentDescription = null,
+                        tint = colors.onSurfaceVariant,
+                        modifier = Modifier.size(12.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AppUpdateActions(
+    releaseUrl: String,
+    onDismiss: () -> Unit,
+    onDownload: () -> Unit,
+    onDisableAutoUpdate: (() -> Unit)?,
+) {
+    val s = cpStrings().update
+    val secondaryColors = ButtonDefaults.textButtonColors(
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (onDisableAutoUpdate != null) {
+            TextButton(onClick = onDisableAutoUpdate, colors = secondaryColors) {
+                CpText(s.disableAutoUpdate, maxLines = Int.MAX_VALUE)
+            }
+        }
+        TextButton(onClick = onDismiss, colors = secondaryColors) {
+            CpText(s.later, maxLines = Int.MAX_VALUE)
+        }
+        if (releaseUrl.isNotBlank()) {
+            FilledTonalButton(
+                onClick = { openUrl(releaseUrl) },
+                shapes = ButtonDefaults.shapes(),
+            ) {
+                CpText(s.releasePage, maxLines = Int.MAX_VALUE)
+            }
+        }
+        Button(onClick = onDownload, shapes = ButtonDefaults.shapes()) {
+            Icon(
+                imageVector = Icons.Default.Download,
+                contentDescription = null,
+                modifier = Modifier.size(ButtonDefaults.IconSize),
+            )
+            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+            CpText(s.downloadNow, maxLines = Int.MAX_VALUE)
+        }
+    }
+}
+
+private data class UpdateInstallType(
+    val label: String,
+    val asset: AppUpdateChecker.UpdateAsset,
+)
+
+/** 按 Kazumi `_detectAvailableInstallationTypes` 的平台分支生成安装类型行。 */
+private fun resolveInstallTypes(
+    result: AppUpdateChecker.UpdateResult,
+    s: cp.player.app.i18n.AppUpdateStrings,
+): List<UpdateInstallType> {
+    if (desktopPlatform() == "linux") return emptyList()
+
+    val assets = result.availableAssets.ifEmpty {
+        val url = result.downloadUrl ?: return emptyList()
+        listOf(
+            AppUpdateChecker.UpdateAsset(
+                name = result.assetName ?: "CPPlayer-${result.versionName}",
+                downloadUrl = url,
+                sha256 = result.assetSha256,
+                size = result.assetSize,
+            ),
+        )
+    }
+
+    return when {
+        isAndroidPlatform() -> assets
+            .filter { it.name.endsWith(".apk", ignoreCase = true) }
+            .map { UpdateInstallType(s.packageAndroid, it) }
+
+        desktopPlatform() == "windows" -> buildList {
+            assets.firstOrNull {
+                it.name.endsWith("-Setup.exe", ignoreCase = true) || it.name.endsWith(".exe", ignoreCase = true)
+            }?.let { add(UpdateInstallType(s.packageWindows, it)) }
+            assets.firstOrNull {
+                it.name.endsWith("-portable.zip", ignoreCase = true) ||
+                    (it.name.endsWith(".zip", ignoreCase = true) && !it.name.contains("nupkg", ignoreCase = true))
+            }?.let { add(UpdateInstallType(s.packageWindowsPortable, it)) }
+        }
+
+        desktopPlatform() == "macos" -> assets
+            .filter { it.name.endsWith(".dmg", ignoreCase = true) }
+            .map { UpdateInstallType(s.packageMacos, it) }
+
+        else -> emptyList()
+    }
 }
 
 /**

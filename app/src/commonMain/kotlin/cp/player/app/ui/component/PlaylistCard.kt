@@ -45,6 +45,7 @@ import cp.player.app.ui.anim.coverFlightSource
 import cp.player.app.ui.theme.cpCardSurface
 import cp.player.app.ui.theme.cpNestedSurface
 import cp.player.app.ui.theme.cpNestedSurface
+import cp.player.app.ui.util.rememberCoverImageRequest
 import cp.player.app.ui.util.resized
 
 /**
@@ -104,19 +105,17 @@ fun PlaylistItem(
                         .coverFlightSource(CoverFlight.playlistKey(playlist.resourceId), thumbCorner),
                     contentAlignment = Alignment.Center,
                 ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.QueueMusic, null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(28.dp),
+                    )
                     if (!playlist.coverUrl.isNullOrBlank()) {
-                        // [Bolt] Fetch smaller (300px) covers for playlist cards to drastically reduce list payload
                         AsyncImage(
-                            model = playlist.coverUrl.resized(300),
+                            model = rememberCoverImageRequest(playlist.coverUrl, targetSizeDp = 60.dp),
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,
-                        )
-                    } else {
-                        Icon(
-                            Icons.AutoMirrored.Filled.QueueMusic, null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(28.dp),
                         )
                     }
                 }
@@ -227,9 +226,8 @@ fun PlaylistCoverCard(
                 animated = false,
             )
             if (overImage) {
-                // [Bolt] Limit playlist thumbnail downloads to 300px to avoid large memory footprints
                 AsyncImage(
-                    model = playlist.coverUrl.resized(300),
+                    model = rememberCoverImageRequest(playlist.coverUrl, targetPx = 256),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.extraLarge),
                     contentScale = ContentScale.Crop,

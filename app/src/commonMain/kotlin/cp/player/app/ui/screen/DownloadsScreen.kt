@@ -59,8 +59,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.screen.Screen
+import cp.player.app.ui.navigation.pageModel
+import cp.player.app.ui.navigation.RoutePage
 import coil3.compose.AsyncImage
 import cp.player.app.AppModel
 import cp.player.app.i18n.CpStrings
@@ -95,7 +95,7 @@ import cp.player.app.ui.theme.CpMotion
 import cp.player.app.ui.theme.CpShapes
 import cp.player.app.ui.util.UiEvents
 import cp.player.app.ui.util.formatBytes
-import cp.player.app.ui.util.resized
+import cp.player.app.ui.util.rememberCoverImageRequest
 import cp.player.core.media.MediaType
 import cp.player.core.model.DownloadStatus
 import cp.player.core.model.DownloadTask
@@ -113,12 +113,12 @@ import kotlin.math.roundToInt
  * - **桌面面板**：[embedded] 为真，由 `MainScreen` 的 `DesktopPane.Downloads` 盖在内容层上。
  *   标题与返回归外壳（窗口 chrome，或宽屏平板壳层自己的顶栏），页内再画一条就是双顶栏。
  */
-class DownloadsScreen(private val embedded: Boolean = false) : Screen {
+class DownloadsScreen(private val embedded: Boolean = false) : RoutePage {
     @Composable
     override fun Content() {
         val navigator = LocalAppNavigator.current
-        // rememberScreenModel 是 Screen 的扩展函数，只能在 Content() 里调用（见 AGENTS.md）。
-        val model = rememberScreenModel { DownloadsScreenModel() }
+        // pageModel 是 RoutePage 的扩展函数，只能在 Content() 里调用（见 AGENTS.md）。
+        val model = pageModel { DownloadsScreenModel() }
         CpRouteScaffold(
             title = cpStrings().downloads.screenTitle,
             onBack = { navigator.pop() },
@@ -711,8 +711,10 @@ private fun ActiveTaskCard(
     val failed = task.status == DownloadStatus.FAILED || task.status == DownloadStatus.CANCELLED
     val fraction = taskFraction(task)
 
-    val targetColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else settingsRowContainer()
+    val targetColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else settingsRowContainer()
     val animatedColor by animateColorAsState(targetColor, animationSpec = CpMotion.effects())
+    val selectedTitleColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val selectedSubColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
 
     Surface(
         shape = MaterialTheme.shapes.largeIncreased,
@@ -744,6 +746,7 @@ private fun ActiveTaskCard(
                         task.title,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
+                        color = selectedTitleColor,
                         maxLines = 1,
                         emphasized = task.status == DownloadStatus.DOWNLOADING,
                         marqueeEnabled = task.status == DownloadStatus.DOWNLOADING,
@@ -751,7 +754,7 @@ private fun ActiveTaskCard(
                     CpText(
                         task.artist ?: s.downloads.unknownArtist,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = selectedSubColor,
                         maxLines = 1,
                     )
                 }
@@ -1131,8 +1134,10 @@ private fun CompletedTaskCard(
         )
     )
 
-    val targetColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else settingsRowContainer()
+    val targetColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else settingsRowContainer()
     val animatedColor by animateColorAsState(targetColor, animationSpec = CpMotion.effects())
+    val selectedTitleColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val selectedSubColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
 
     CpContextMenu(items = contextMenu, modifier = modifier) {
         Surface(
@@ -1167,6 +1172,7 @@ private fun CompletedTaskCard(
                         task.title,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
+                        color = selectedTitleColor,
                         maxLines = 1,
                     )
                     // 副标题刻意不显示本地绝对路径：那串字符对用户没有信息量，
@@ -1178,7 +1184,7 @@ private fun CompletedTaskCard(
                             if (size > 0) append(" · ").append(formatBytes(size))
                         },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = selectedSubColor,
                         maxLines = 1,
                     )
                 }
@@ -1249,7 +1255,7 @@ private fun TaskCover(coverUrl: String?, mediaType: MediaType, modifier: Modifie
         ) {
             if (!coverUrl.isNullOrBlank()) {
                 AsyncImage(
-                    model = coverUrl.resized(120),
+                    model = rememberCoverImageRequest(coverUrl, targetPx = 128),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,

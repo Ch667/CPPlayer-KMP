@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -65,11 +66,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -84,14 +81,17 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import cp.player.app.i18n.cpStrings
+import cp.player.app.platform.isAndroidPlatform
 import cp.player.app.ui.model.MobilePlayerCustomConfig
 import cp.player.app.ui.theme.CpMotion
 import cp.player.app.ui.util.SeekAvailability
 import cp.player.app.ui.util.formatTimeMs
+import cp.player.app.ui.util.rememberCoverImageRequest
 import cp.player.core.music.ArtistSummary
 import cp.player.core.music.TrackSummary
 import cp.player.core.playback.PlaybackUiState
@@ -138,6 +138,7 @@ internal fun MobileNowPlayingLayout(
     isImmersive: Boolean = false,
     onToggleImmersive: () -> Unit = {},
     onImmersiveChange: (Boolean) -> Unit = {},
+    isTransitionRunning: Boolean = false,
     lyricsContent: @Composable (Modifier) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -299,26 +300,36 @@ internal fun MobileNowPlayingLayout(
                             ) {
                                 PlayerArtwork(
                                     track, state.isPlaying,
-                                    Modifier.size(52.dp).clickable(
+                                    Modifier.size(52.dp).then(if (lyricsExpanded) artworkModifier else Modifier).clickable(
                                         role = Role.Button, onClickLabel = s.player.lyricsCollapse,
                                         onClick = onToggleLyrics,
                                     ),
                                 )
                                 Spacer(Modifier.width(12.dp))
-                                TrackHeading(track, false, onArtistClick, Modifier.weight(1f))
-                                PlayerIconButton(
-                                    if (isImmersive) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
-                                    if (isImmersive) s.player.exitImmersive else s.player.immersive,
-                                    onToggleImmersive,
-                                    selected = isImmersive,
+                                TrackHeading(
+                                    track = track,
+                                    large = false,
+                                    onArtistClick = onArtistClick,
+                                    modifier = Modifier.weight(1f),
+                                    titleModifier = if (lyricsExpanded) titleModifier else Modifier,
+                                    artistModifier = if (lyricsExpanded) artistModifier else Modifier,
+                                    marqueeEnabled = state.isPlaying && !isTransitionRunning,
                                 )
+                                if (isAndroidPlatform()) {
+                                    PlayerIconButton(
+                                        if (isImmersive) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
+                                        if (isImmersive) s.player.exitImmersive else s.player.immersive,
+                                        onToggleImmersive,
+                                        selected = isImmersive,
+                                    )
+                                }
                                 PlayerIconButton(
                                     Icons.Rounded.Translate, s.player.translation, onToggleTranslation,
                                     selected = config.showTranslation,
                                 )
                             }
                         }
-                        Box(Modifier.weight(1f).fillMaxWidth().lyricEdgeFade()) {
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
                             lyricsContent(Modifier.fillMaxSize().testTag("player-full-lyrics"))
                         }
                     }
@@ -339,7 +350,7 @@ internal fun MobileNowPlayingLayout(
                             Spacer(Modifier.height(topGap))
                             PlayerArtwork(
                                 track, state.isPlaying,
-                                Modifier.size(artSize).then(artworkModifier).then(dismissGesture)
+                                Modifier.size(artSize).then(if (lyricsExpanded) Modifier else artworkModifier).then(dismissGesture)
                                     .testTag("player-artwork"),
                             )
                             Spacer(Modifier.height(artworkGap))
@@ -358,20 +369,21 @@ internal fun MobileNowPlayingLayout(
                                         large = !compact,
                                         onArtistClick = onArtistClick,
                                         modifier = Modifier.weight(1f),
-                                        titleModifier = titleModifier,
-                                        artistModifier = artistModifier,
+                                        titleModifier = if (lyricsExpanded) Modifier else titleModifier,
+                                        artistModifier = if (lyricsExpanded) Modifier else artistModifier,
+                                        marqueeEnabled = state.isPlaying && !isTransitionRunning,
                                     )
                                     PlayerIconButton(
                                         if (state.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                                         if (state.isFavorite) s.player.unlike else s.player.like,
                                         onLike, selected = state.isFavorite,
-                                        iconSize = 22,
+                                        iconSize = CpSpacing.playerFavoriteIcon,
                                         showSelectionContainer = false,
                                         modifier = Modifier.testTag("player-favorite"),
                                     )
                                     PlayerIconButton(
                                         Icons.Rounded.MoreHoriz, s.player.more, onMore,
-                                        iconSize = 22,
+                                        iconSize = 22.dp,
                                         modifier = Modifier.testTag("player-more"),
                                     )
                                 }
@@ -401,13 +413,13 @@ internal fun MobileNowPlayingLayout(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         PlayerIconButton(
-                            Icons.Rounded.SkipPrevious, s.player.previousTrack, onSkipPrevious, iconSize = 34,
+                            Icons.Rounded.SkipPrevious, s.player.previousTrack, onSkipPrevious, iconSize = 34.dp,
                         )
                         Box(contentAlignment = Alignment.Center) {
                             PlayerIconButton(
                                 if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                                 s.player.playOrPause(state.isPlaying),
-                                onTogglePlay, iconSize = 48,
+                                onTogglePlay, iconSize = 48.dp,
                                 modifier = Modifier.size(72.dp).testTag("player-play-pause"),
                             )
                             if (state.isBuffering) {
@@ -415,7 +427,7 @@ internal fun MobileNowPlayingLayout(
                             }
                         }
                         PlayerIconButton(
-                            Icons.Rounded.SkipNext, s.player.nextTrack, onSkipNext, iconSize = 34,
+                            Icons.Rounded.SkipNext, s.player.nextTrack, onSkipNext, iconSize = 34.dp,
                         )
                     }
                     state.error?.takeIf(String::isNotBlank)?.let { error ->
@@ -469,7 +481,7 @@ internal fun MobileNowPlayingLayout(
 }
 
 @Composable
-private fun AlbumEyebrow(
+internal fun AlbumEyebrow(
     album: String?,
     fallback: String,
     modifier: Modifier = Modifier,
@@ -493,6 +505,8 @@ private fun AlbumEyebrow(
         Spacer(Modifier.width(7.dp))
         CpText(
             label,
+            // Optically center the glyphs within the already centered text line box.
+            modifier = Modifier.offset(y = (-1).dp),
             style = MaterialTheme.typography.labelMedium,
             color = colors.onSurfaceVariant,
             maxLines = 1,
@@ -509,22 +523,25 @@ private fun TrackHeading(
     modifier: Modifier = Modifier,
     titleModifier: Modifier = Modifier,
     artistModifier: Modifier = Modifier,
+    marqueeEnabled: Boolean = true,
 ) {
     Column(modifier) {
         CpText(
             track.name,
-            modifier = Modifier.then(titleModifier).fillMaxWidth().testTag("player-track-title"),
+            modifier = Modifier.then(titleModifier).testTag("player-track-title"),
             style = if (large) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1, reveal = CpTextReveal.Marquee,
+            marqueeEnabled = marqueeEnabled,
         )
         Spacer(Modifier.height(4.dp))
         TrackArtistText(
             track = track, onArtistClick = onArtistClick,
-            modifier = Modifier.then(artistModifier).fillMaxWidth().testTag("player-track-artist"),
+            modifier = Modifier.then(artistModifier).testTag("player-track-artist"),
             style = if (large) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
             reveal = CpTextReveal.Marquee,
+            marqueeEnabled = marqueeEnabled,
         )
     }
 }
@@ -548,21 +565,23 @@ private fun PlayerArtwork(
         color = cpNestedSurface(),
         shadowElevation = 4.dp,
     ) {
-        Box {
-            // The parent Surface owns the shape; do not introduce a second corner scale.
-            CpCoverPlaceholder(Modifier.fillMaxSize(), corner = 0.dp, animated = false)
-            if (!track.coverUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = track.coverUrl, contentDescription = track.album ?: track.name,
-                    contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
+        // The parent Surface owns the shape; do not introduce a second corner scale.
+        CpArtworkImage(
+            request = rememberCoverImageRequest(
+                track.coverUrl,
+                targetPx = 512,
+                placeholderBucketPx = 128,
+            ),
+            contentDescription = track.album ?: track.name,
+            contentScale = ContentScale.Crop,
+            placeholderCorner = 0.dp,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 
 @Composable
-private fun PlayerTimeline(
+internal fun PlayerTimeline(
     state: PlaybackUiState,
     positionFlow: Flow<Long>? = null,
     initialPositionMs: Long = state.positionMs,
@@ -674,7 +693,7 @@ private fun PlayerIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean? = null,
-    iconSize: Int = 23,
+    iconSize: Dp = 23.dp,
     showSelectionContainer: Boolean = true,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -693,23 +712,13 @@ private fun PlayerIconButton(
             } else {
                 Color.Transparent
             },
-            contentColor = if (selected == true) colors.onPrimaryContainer else colors.onSurface,
+            contentColor = when {
+                selected != true -> colors.onSurface
+                showSelectionContainer -> colors.onPrimaryContainer
+                else -> colors.primary
+            },
         ),
     ) {
-        Icon(icon, label, Modifier.size(iconSize.dp))
+        Icon(icon, label, Modifier.size(iconSize))
     }
 }
-
-private fun Modifier.lyricEdgeFade(): Modifier =
-    clip(androidx.compose.ui.graphics.RectangleShape)
-        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-        .drawWithContent {
-            drawContent()
-            drawRect(
-                Brush.verticalGradient(
-                    0f to Color.Transparent, 0.08f to Color.Black,
-                    0.9f to Color.Black, 1f to Color.Transparent,
-                ),
-                blendMode = BlendMode.DstIn,
-            )
-        }

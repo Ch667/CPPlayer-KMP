@@ -2,6 +2,8 @@ package cp.player.app.ui.theme
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import com.materialkolor.PaletteStyle
@@ -246,3 +248,48 @@ internal fun ColorScheme.withNeutralSurfaces(): ColorScheme = copy(
     inverseSurface = inverseSurface.neutralizedSurface(),
     inverseOnSurface = inverseOnSurface.neutralizedContent(),
 )
+
+/**
+ * M3 扩展语义状态色板（Success / Warning）。
+ *
+ * 浅/深色分别按 Tonal 算法与 WCAG AA（≥ 4.5:1）校准，避免页面直接硬编码
+ * `Color(0xFF4CAF50)` / `Color(0xFFFF9800)` 导致浅色模式下对比度跌破 3:1。
+ */
+@Immutable
+data class CpSemanticColors(
+    val success: Color,
+    val onSuccess: Color,
+    val successContainer: Color,
+    val onSuccessContainer: Color,
+    val warning: Color,
+    val onWarning: Color,
+    val warningContainer: Color,
+    val onWarningContainer: Color,
+)
+
+private val LightSemanticColors = CpSemanticColors(
+    success = Color(0xFF1B6E2D),
+    onSuccess = Color(0xFFFFFFFF),
+    successContainer = Color(0xFFD2F5D7),
+    onSuccessContainer = Color(0xFF002107),
+    warning = Color(0xFF8A5000),
+    onWarning = Color(0xFFFFFFFF),
+    warningContainer = Color(0xFFFFDFB8),
+    onWarningContainer = Color(0xFF2C1600),
+)
+
+private val DarkSemanticColors = CpSemanticColors(
+    success = Color(0xFF81D88B),
+    onSuccess = Color(0xFF00390F),
+    successContainer = Color(0xFF00531A),
+    onSuccessContainer = Color(0xFFB8F5BE),
+    warning = Color(0xFFFFB95D),
+    onWarning = Color(0xFF492900),
+    warningContainer = Color(0xFF693C00),
+    onWarningContainer = Color(0xFFFFDFB8),
+)
+
+/** 根据当前已解析的明暗主题返回合规的语义状态色板。 */
+@Composable
+fun cpSemanticColors(): CpSemanticColors =
+    if (LocalIsDarkTheme.current) DarkSemanticColors else LightSemanticColors

@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -20,8 +19,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import cp.player.app.i18n.cpStrings
+import cp.player.app.ui.theme.cpNestedSurface
 import cp.player.app.ui.util.formatBytes
-import cp.player.app.ui.theme.cpSheetSurface
 
 /**
  * 自定义歌曲缓存上限对话框。
@@ -58,10 +57,8 @@ fun CustomCapacityDialog(
     }
     val isValid = parsedBytes != null && parsedBytes in (128L * 1024L * 1024L)..(1024L * 1024L * 1024L * 1024L)
 
-    AlertDialog(
+    CpAlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = cpSheetSurface(),
-        shape = MaterialTheme.shapes.extraLarge,
         title = {
             CpText(
                 s.storage.customCapacityDialogTitle,
@@ -94,11 +91,13 @@ fun CustomCapacityDialog(
                             checked = !isGb,
                             onCheckedChange = { isGb = false },
                             label = s.storage.customCapacityUnitMb,
+                            containerColor = cpNestedSurface(),
                         )
                         CpToggleChip(
                             checked = isGb,
                             onCheckedChange = { isGb = true },
                             label = s.storage.customCapacityUnitGb,
+                            containerColor = cpNestedSurface(),
                         )
                     }
                 }

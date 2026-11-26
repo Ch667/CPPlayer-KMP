@@ -83,8 +83,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.screen.Screen
+import cp.player.app.ui.navigation.pageModel
+import cp.player.app.ui.navigation.RoutePage
 import coil3.compose.AsyncImage
 import cp.player.app.AppModel
 import cp.player.app.presentation.navigation.AppRoute
@@ -142,7 +142,7 @@ import cp.player.app.ui.model.PlaylistDetailScreenModel
 import cp.player.app.ui.model.PlaylistSource
 import cp.player.app.ui.theme.CpMotion
 import cp.player.app.ui.util.formatTimeMs
-import cp.player.app.ui.util.resized
+import cp.player.app.ui.util.rememberCoverImageRequest
 import cp.player.core.BackendResult
 import cp.player.core.music.AlbumSummary
 import cp.player.core.provider.ProviderCapability
@@ -156,10 +156,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-class HomeScreen : Screen {
+class HomeScreen : RoutePage {
     @Composable
     override fun Content() {
-        HomeScreenContent(rememberScreenModel { HomeScreenModel() })
+        HomeScreenContent(pageModel { HomeScreenModel() })
     }
 }
 
@@ -615,7 +615,7 @@ internal fun TabletHomeLayout(
                 )
 
                 Row(
-                    Modifier.fillMaxWidth().height(CpSpacing.desktopFocusHeight),
+                    Modifier.fillMaxWidth().height(CpSpacing.wideMusicCardHeight),
                     horizontalArrangement = Arrangement.spacedBy(CpSpacing.musicGap),
                 ) {
                     when {
@@ -626,7 +626,7 @@ internal fun TabletHomeLayout(
                                 state.banners,
                                 actions.onBannerClick,
                                 Modifier.weight(1.2f).fillMaxHeight(),
-                                height = CpSpacing.desktopFocusHeight,
+                                height = CpSpacing.wideMusicCardHeight,
                             )
                         else -> TabletWelcomeFocus(actions, Modifier.weight(1.2f).fillMaxHeight())
                     }
@@ -859,7 +859,7 @@ internal fun DesktopHomeLayout(
 
                 if (state.dailySongs.isNotEmpty()) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().height(CpSpacing.desktopFocusHeight),
+                        modifier = Modifier.fillMaxWidth().height(CpSpacing.wideMusicCardHeight),
                         horizontalArrangement = Arrangement.spacedBy(CpSpacing.pageHorizontal),
                     ) {
                         DailySelectionFocus(state.dailySongs, actions, Modifier.weight(1.65f).fillMaxHeight())
@@ -1436,7 +1436,7 @@ internal fun BannerCarousel(
                         animated = false,
                     )
                     AsyncImage(
-                        model = banner.imageUrl.resized(1000),
+                        model = rememberCoverImageRequest(banner.imageUrl, targetPx = 1024, cropSquare = false),
                         contentDescription = banner.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
@@ -1522,7 +1522,7 @@ private fun BannerDots(
             )
             val active = if (onImage) Color.White else MaterialTheme.colorScheme.primary
             val inactive = if (onImage) Color.White.copy(alpha = 0.45f)
-            else MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+            else MaterialTheme.colorScheme.outlineVariant
             Box(
                 Modifier
                     .size(width = width.dp, height = 6.dp)
@@ -1769,7 +1769,7 @@ private fun HomePlayingCover(track: TrackSummary) {
         CpCoverPlaceholder(Modifier.fillMaxSize(), corner = 12.dp, animated = false)
         if (!track.coverUrl.isNullOrBlank()) {
             AsyncImage(
-                model = track.coverUrl.resized(180),
+                model = rememberCoverImageRequest(track.coverUrl, targetSizeDp = 64.dp),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
@@ -2212,7 +2212,7 @@ private fun CoverTile(
             )
             if (overImage) {
                 AsyncImage(
-                    model = coverUrl.resized(400),
+                    model = rememberCoverImageRequest(coverUrl, targetPx = 512),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(corner)),
                     contentScale = ContentScale.Crop,
@@ -2325,7 +2325,7 @@ private fun RankingRow(
             ) {
                 if (!ranking.coverUrl.isNullOrBlank()) {
                     AsyncImage(
-                        model = ranking.coverUrl.resized(200),
+                        model = rememberCoverImageRequest(ranking.coverUrl, targetSizeDp = 52.dp),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.medium),
                         contentScale = ContentScale.Crop,
@@ -2440,7 +2440,7 @@ private fun ArtistTile(
             }
             if (!artist.avatarUrl.isNullOrBlank()) {
                 AsyncImage(
-                    model = artist.avatarUrl.resized(300),
+                    model = rememberCoverImageRequest(artist.avatarUrl, targetPx = 256),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize().clip(avatarShape),
                     contentScale = ContentScale.Crop,
@@ -2693,7 +2693,7 @@ private fun RecentPlayPill(
                 )
                 if (!track.coverUrl.isNullOrBlank()) {
                     AsyncImage(
-                        model = track.coverUrl.resized(120),
+                        model = rememberCoverImageRequest(track.coverUrl, targetPx = 128),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize().clip(CircleShape),
                         contentScale = ContentScale.Crop,
@@ -2817,7 +2817,7 @@ private fun DailyMixCard(
                                     ) {
                                         if (!track.coverUrl.isNullOrBlank()) {
                                             AsyncImage(
-                                                model = track.coverUrl.resized(160),
+                                                model = rememberCoverImageRequest(track.coverUrl, targetPx = 256),
                                                 contentDescription = null,
                                                 modifier = Modifier.fillMaxSize(),
                                                 contentScale = ContentScale.Crop,
@@ -2837,8 +2837,8 @@ private fun DailyMixCard(
                         // 移到顶部的「查看全部」操作胶囊
                         Surface(
                             shape = CircleShape,
-                            color = Color.White.copy(alpha = 0.22f),
-                            contentColor = Color.White,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier
                                 .height(38.dp)
                                 .cpBounceClickable(onClick = onOpenPlaylist),
@@ -2851,14 +2851,14 @@ private fun DailyMixCard(
                                 Icon(
                                     Icons.Filled.PlayArrow,
                                     contentDescription = null,
-                                    tint = Color.White,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
                                     modifier = Modifier.size(16.dp),
                                 )
                                 CpText(
                                     s.library.seeAll,
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 )
                             }
                         }
@@ -2926,7 +2926,7 @@ private fun CompactTrackCard(
     val defaultContainer = cp.player.app.ui.theme.cpCardSurface()
     val containerColor by animateColorAsState(
         targetValue = if (isCurrent) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f)
+            MaterialTheme.colorScheme.primaryContainer
         } else {
             defaultContainer
         },
@@ -2934,14 +2934,14 @@ private fun CompactTrackCard(
     )
     val titleColor by animateColorAsState(
         targetValue = if (isCurrent) {
-            MaterialTheme.colorScheme.primary
+            MaterialTheme.colorScheme.onPrimaryContainer
         } else {
             MaterialTheme.colorScheme.onSurface
         },
         label = "dailyCardTitle",
     )
     val artistColor = if (isCurrent) {
-        MaterialTheme.colorScheme.onSurfaceVariant
+        MaterialTheme.colorScheme.onPrimaryContainer
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -2967,7 +2967,7 @@ private fun CompactTrackCard(
             ) {
                 if (!track.coverUrl.isNullOrBlank()) {
                     AsyncImage(
-                        model = track.coverUrl.resized(180),
+                        model = rememberCoverImageRequest(track.coverUrl, targetPx = 256),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
